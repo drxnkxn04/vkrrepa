@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+env/
+venv/
+ENV/
+envs/
+*.egg-info/
+*.pytest_cache/
+.mypy_cache/
+.env
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE/редактор
+.idea/
+.vscode/
+
+# Логи и временные файлы
+*.log
+*.tmp
+.DS_Store
+
+# Docker/CI
+.dockerignore
+Dockerfile
+docker-compose.yml
