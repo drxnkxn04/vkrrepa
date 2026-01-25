@@ -1,37 +1,30 @@
+# backend/vkrtry2/celery.py
+
 from __future__ import absolute_import, unicode_literals
 import os
 from celery import Celery
 from celery.schedules import crontab
 
-# Установка переменной окружения для настроек Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'vktry2.settings')
+# ⚠️ ИСПРАВЛЕНО: было vktry2, должно быть vkrtry2
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'vkrtry2.settings')
 
-# Создание экземпляра приложения Celery
-app = Celery('vktry2')
+app = Celery('vkrtry2')  # ⚠️ И здесь тоже
 
-# Загрузка настроек из settings.py с префиксом CELERY_
 app.config_from_object('django.conf:settings', namespace='CELERY')
-
-# Автоматическая загрузка задач из всех зарегистрированных приложений Django
 app.autodiscover_tasks()
 
-# Настройка периодических задач
+# Периодические задачи
 app.conf.beat_schedule = {
-    'collect-publications-daily': {
-        'task': 'apps.integrations.services.crossref_service.collect_publications',
-        'schedule': crontab(minute=0, hour=2),  # Запуск в 2:00 каждый день
+    'calculate-monthly-kpi': {
+        'task': 'apps.kpi.tasks.calculate_kpi_for_all_users',
+        'schedule': crontab(day_of_month='28-31', hour=23, minute=0),
     },
-    'generate-monthly-reports': {
-        'task': 'apps.kpi.tasks.generate_monthly_reports',
-        'schedule': crontab(0, 0, day_of_month='1'),  # Запуск в 00:00 1-го числа каждого месяца
+    'generate-recommendations': {
+        'task': 'apps.kpi.tasks.generate_recommendations_for_all_users',
+        'schedule': crontab(day_of_month='28-31', hour=23, minute=30),
     },
-    'send-kpi-reminders': {
-        'task': 'apps.kpi.tasks.send_kpi_reminders',
-        'schedule': crontab(minute=0, hour=9),  # Запуск в 9:00 каждый день
-    }
 }
 
-# Опционально: настройка для работы с Redis
 app.conf.broker_connection_retry_on_startup = True
 
 @app.task(bind=True)

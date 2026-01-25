@@ -1,0 +1,847 @@
+<template>
+    <div class="manager-container">
+      <div class="page-header">
+        <h1>👔 Дашборд руководителя</h1>
+        <div class="controls">
+          <label for="period">Период:</label>
+          <select id="period" v-model="selectedPeriod" @change="loadData">
+            <option v-for="period in availablePeriods" :key="period" :value="period">
+              {{ formatPeriod(period) }}
+            </option>
+          </select>
+          <button @click="exportData" class="btn btn-secondary">
+            📊 Экспорт
+          </button>
+        </div>
+      </div>
+  
+      <!-- Загрузка -->
+      <div v-if="loading" class="loading-state">
+        <div class="spinner"></div>
+        <p>Загрузка данных...</p>
+      </div>
+  
+      <!-- Основной контент -->
+      <div v-else-if="users.length > 0">
+        <!-- Общая статистика -->
+        <div class="summary-cards">
+          <div class="summary-card">
+            <div class="card-icon">👥</div>
+            <div class="card-content">
+              <h3>Всего сотрудников</h3>
+              <p class="card-value">{{ users.length }}</p>
+            </div>
+          </div>
+  
+          <div class="summary-card">
+            <div class="card-icon">⭐</div>
+            <div class="card-content">
+              <h3>Средний балл</h3>
+              <p class="card-value">{{ averageScore.toFixed(1) }}%</p>
+            </div>
+          </div>
+  
+          <div class="summary-card">
+            <div class="card-icon">🏆</div>
+            <div class="card-content">
+              <h3>Высокая эффективность</h3>
+              <p class="card-value">{{ highPerformers }}</p>
+              <span class="card-subtitle">{{ highPerformersPercent }}%</span>
+            </div>
+          </div>
+  
+          <div class="summary-card">
+            <div class="card-icon">💰</div>
+            <div class="card-content">
+              <h3>Общий фонд премий</h3>
+              <p class="card-value">{{ formatCurrency(totalBonus) }}</p>
+            </div>
+          </div>
+        </div>
+  
+        <!-- Фильтры и поиск -->
+        <div class="filters-section">
+          <div class="search-box">
+            <input 
+              type="text" 
+              v-model="searchQuery" 
+              placeholder="🔍 Поиск по имени или email..."
+              @input="filterUsers"
+            />
+          </div>
+          <div class="filter-buttons">
+            <button 
+              :class="['filter-btn', { active: selectedFilter === 'all' }]"
+              @click="setFilter('all')"
+            >
+              Все ({{ users.length }})
+            </button>
+            <button 
+              :class="['filter-btn', { active: selectedFilter === 'high' }]"
+              @click="setFilter('high')"
+            >
+              Высокие ({{ highPerformers }})
+            </button>
+            <button 
+              :class="['filter-btn', { active: selectedFilter === 'medium' }]"
+              @click="setFilter('medium')"
+            >
+              Средние ({{ mediumPerformers }})
+            </button>
+            <button 
+              :class="['filter-btn', { active: selectedFilter === 'low' }]"
+              @click="setFilter('low')"
+            >
+              Низкие ({{ lowPerformers }})
+            </button>
+          </div>
+          <div class="sort-controls">
+            <label>Сортировка:</label>
+            <select v-model="sortBy" @change="sortUsers">
+              <option value="score-desc">Балл (убыв.)</option>
+              <option value="score-asc">Балл (возр.)</option>
+              <option value="name-asc">Имя (А-Я)</option>
+              <option value="name-desc">Имя (Я-А)</option>
+              <option value="bonus-desc">Премия (убыв.)</option>
+            </select>
+          </div>
+        </div>
+  
+        <!-- Таблица сотрудников -->
+        <div class="users-table-card">
+          <h2>Рейтинг сотрудников</h2>
+          <div class="table-responsive">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th class="rank-col">#</th>
+                  <th>Сотрудник</th>
+                  <th>Email</th>
+                  <th class="score-col">Балл KPI</th>
+                  <th>Уровень</th>
+                  <th class="bonus-col">Премия</th>
+                  <th class="actions-col">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(user, index) in filteredUsers" :key="user.user_id">
+                  <td class="rank-col">
+                    <span class="rank-badge" :class="getRankClass(index)">
+                      {{ index + 1 }}
+                    </span>
+                  </td>
+                  <td class="user-col">
+                    <div class="user-info">
+                      <div class="user-avatar">
+                        {{ getInitials(user.full_name) }}
+                      </div>
+                      <div>
+                        <strong>{{ user.full_name }}</strong>
+                        <small>@{{ user.username }}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="email-col">{{ user.email }}</td>
+                  <td class="score-col">
+                    <div class="score-wrapper">
+                      <div class="score-bar">
+                        <div 
+                          class="score-fill" 
+                          :style="{ width: user.total_score + '%' }"
+                          :class="getScoreClass(user.total_score)"
+                        ></div>
+                      </div>
+                      <span class="score-text">{{ user.total_score.toFixed(1) }}%</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="level-badge" :class="'level-' + user.performance_level">
+                      {{ formatLevel(user.performance_level) }}
+                    </span>
+                  </td>
+                  <td class="bonus-col">
+                    <strong>{{ formatCurrency(user.bonus_amount) }}</strong>
+                  </td>
+                  <td class="actions-col">
+                    <button 
+                      @click="viewUserDetails(user.user_id)" 
+                      class="btn-icon"
+                      title="Просмотр деталей"
+                    >
+                      👁️
+                    </button>
+                    <button 
+                      @click="generateUserReport(user.user_id)" 
+                      class="btn-icon"
+                      title="Скачать отчет"
+                    >
+                      📄
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+  
+        <!-- Диаграмма распределения -->
+        <div class="distribution-card">
+          <h2>Распределение по уровням эффективности</h2>
+          <div class="distribution-chart">
+            <div class="distribution-bar">
+              <div 
+                class="distribution-segment high"
+                :style="{ width: highPerformersPercent + '%' }"
+              >
+                <span v-if="highPerformersPercent > 10">{{ highPerformers }}</span>
+              </div>
+              <div 
+                class="distribution-segment medium"
+                :style="{ width: mediumPerformersPercent + '%' }"
+              >
+                <span v-if="mediumPerformersPercent > 10">{{ mediumPerformers }}</span>
+              </div>
+              <div 
+                class="distribution-segment low"
+                :style="{ width: lowPerformersPercent + '%' }"
+              >
+                <span v-if="lowPerformersPercent > 10">{{ lowPerformers }}</span>
+              </div>
+            </div>
+            <div class="distribution-legend">
+              <div class="legend-item">
+                <span class="legend-color high"></span>
+                <span>Высокая ({{ highPerformers }} чел.)</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-color medium"></span>
+                <span>Средняя ({{ mediumPerformers }} чел.)</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-color low"></span>
+                <span>Низкая ({{ lowPerformers }} чел.)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+  
+      <!-- Пустое состояние -->
+      <div v-else class="empty-state">
+        <div class="empty-icon">👥</div>
+        <h2>Нет данных</h2>
+        <p>Не найдено сотрудников за выбранный период</p>
+      </div>
+    </div>
+  </template>
+  
+  <script>
+  import { kpiAPI } from '@/services/api';
+  
+  export default {
+    name: 'ManagerDashboardView',
+    data() {
+      return {
+        selectedPeriod: '',
+        availablePeriods: [],
+        users: [],
+        filteredUsers: [],
+        loading: false,
+        searchQuery: '',
+        selectedFilter: 'all',
+        sortBy: 'score-desc'
+      };
+    },
+    computed: {
+      averageScore() {
+        if (this.users.length === 0) return 0;
+        const sum = this.users.reduce((acc, user) => acc + user.total_score, 0);
+        return sum / this.users.length;
+      },
+      highPerformers() {
+        return this.users.filter(u => u.performance_level === 'высокий').length;
+      },
+      mediumPerformers() {
+        return this.users.filter(u => u.performance_level === 'средний').length;
+      },
+      lowPerformers() {
+        return this.users.filter(u => u.performance_level === 'низкий').length;
+      },
+      highPerformersPercent() {
+        return this.users.length ? (this.highPerformers / this.users.length * 100).toFixed(1) : 0;
+      },
+      mediumPerformersPercent() {
+        return this.users.length ? (this.mediumPerformers / this.users.length * 100).toFixed(1) : 0;
+      },
+      lowPerformersPercent() {
+        return this.users.length ? (this.lowPerformers / this.users.length * 100).toFixed(1) : 0;
+      },
+      totalBonus() {
+        return this.users.reduce((acc, user) => acc + user.bonus_amount, 0);
+      }
+    },
+    async created() {
+      await this.loadPeriods();
+    },
+    methods: {
+      async loadPeriods() {
+        try {
+          const response = await kpiAPI.getPeriods();
+          this.availablePeriods = response.data;
+          if (this.availablePeriods.length > 0) {
+            const now = new Date();
+            const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            this.selectedPeriod = this.availablePeriods.includes(currentPeriod)
+              ? currentPeriod
+              : this.availablePeriods[0];
+            await this.loadData();
+          }
+        } catch (error) {
+          console.error('Ошибка загрузки периодов:', error);
+          this.$toast.error('Не удалось загрузить список периодов');
+        }
+      },
+      async loadData() {
+        this.loading = true;
+        try {
+          const response = await kpiAPI.getManagerDashboard(this.selectedPeriod);
+          this.users = response.data.users;
+          this.filteredUsers = [...this.users];
+          this.sortUsers();
+        } catch (error) {
+          console.error('Ошибка загрузки данных:', error);
+          this.$toast.error('Не удалось загрузить данные дашборда');
+        } finally {
+          this.loading = false;
+        }
+      },
+      filterUsers() {
+        let result = [...this.users];
+  
+        // Фильтр по уровню
+        if (this.selectedFilter !== 'all') {
+          const levelMap = {
+            'high': 'высокий',
+            'medium': 'средний',
+            'low': 'низкий'
+          };
+          result = result.filter(u => u.performance_level === levelMap[this.selectedFilter]);
+        }
+  
+        // Поиск
+        if (this.searchQuery) {
+          const query = this.searchQuery.toLowerCase();
+          result = result.filter(u => 
+            u.full_name.toLowerCase().includes(query) ||
+            u.username.toLowerCase().includes(query) ||
+            u.email.toLowerCase().includes(query)
+          );
+        }
+  
+        this.filteredUsers = result;
+        this.sortUsers();
+      },
+      setFilter(filter) {
+        this.selectedFilter = filter;
+        this.filterUsers();
+      },
+      sortUsers() {
+        const [field, order] = this.sortBy.split('-');
+        
+        this.filteredUsers.sort((a, b) => {
+          let compareValue = 0;
+          
+          switch(field) {
+            case 'score':
+              compareValue = a.total_score - b.total_score;
+              break;
+            case 'name':
+              compareValue = a.full_name.localeCompare(b.full_name);
+              break;
+            case 'bonus':
+              compareValue = a.bonus_amount - b.bonus_amount;
+              break;
+          }
+          
+          return order === 'desc' ? -compareValue : compareValue;
+        });
+      },
+      formatPeriod(period) {
+        const [year, month] = period.split('-');
+        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        return `${monthNames[parseInt(month) - 1]} ${year}`;
+      },
+      formatCurrency(amount) {
+        return new Intl.NumberFormat('ru-RU', {
+          style: 'currency',
+          currency: 'RUB',
+          minimumFractionDigits: 0
+        }).format(amount);
+      },
+      formatLevel(level) {
+        const levels = {
+          'высокий': 'Высокая',
+          'средний': 'Средняя',
+          'низкий': 'Низкая'
+        };
+        return levels[level] || level;
+      },
+      getScoreClass(score) {
+        if (score >= 90) return 'excellent';
+        if (score >= 70) return 'good';
+        if (score >= 50) return 'medium';
+        return 'poor';
+      },
+      getRankClass(index) {
+        if (index === 0) return 'gold';
+        if (index === 1) return 'silver';
+        if (index === 2) return 'bronze';
+        return '';
+      },
+      getInitials(fullName) {
+        return fullName
+          .split(' ')
+          .map(word => word[0])
+          .join('')
+          .toUpperCase()
+          .slice(0, 2);
+      },
+      viewUserDetails(userId) {
+        // Можно открыть модальное окно с деталями или перейти на отдельную страницу
+        this.$toast.info(`Просмотр деталей пользователя ${userId}`);
+      },
+      async generateUserReport(userId) {
+        try {
+          const response = await kpiAPI.generateReport(this.selectedPeriod);
+          this.$toast.success('Отчет сгенерирован');
+        } catch (error) {
+          this.$toast.error('Ошибка генерации отчета');
+        }
+      },
+      exportData() {
+        this.$toast.info('Экспорт данных в разработке');
+      }
+    }
+  };
+  </script>
+  
+  <style scoped>
+  .manager-container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+  }
+  
+  .page-header h1 {
+    margin: 0;
+    color: #2c3e50;
+  }
+  
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  /* Summary Cards */
+  .summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+  }
+  
+  .summary-card {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  
+  .card-icon {
+    font-size: 2.5rem;
+  }
+  
+  .card-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 0.9rem;
+    color: #7f8c8d;
+    font-weight: 500;
+  }
+  
+  .card-value {
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #2c3e50;
+  }
+  
+  .card-subtitle {
+    font-size: 0.85rem;
+    color: #95a5a6;
+  }
+  
+  /* Filters */
+  .filters-section {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 24px;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  
+  .search-box {
+    flex: 1;
+    min-width: 250px;
+  }
+  
+  .search-box input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  
+  .filter-buttons {
+    display: flex;
+    gap: 8px;
+  }
+  
+  .filter-btn {
+    padding: 8px 16px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .filter-btn:hover {
+    background: #f8f9fa;
+  }
+  
+  .filter-btn.active {
+    background: #3498db;
+    color: white;
+    border-color: #3498db;
+  }
+  
+  .sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .sort-controls select {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  /* Table */
+  .users-table-card {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 24px;
+  }
+  
+  .users-table-card h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: #2c3e50;
+  }
+  
+  .table-responsive {
+    overflow-x: auto;
+  }
+  
+  .users-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .users-table th {
+    background: #f8f9fa;
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #2c3e50;
+    border-bottom: 2px solid #e9ecef;
+  }
+  
+  .users-table td {
+    padding: 12px;
+    border-bottom: 1px solid #e9ecef;
+  }
+  
+  .users-table tr:hover {
+    background: #f8f9fa;
+  }
+  
+  .rank-col {
+    width: 60px;
+    text-align: center;
+  }
+  
+  .rank-badge {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
+    text-align: center;
+    border-radius: 50%;
+    background: #e9ecef;
+    font-weight: 600;
+    color: #2c3e50;
+  }
+  
+  .rank-badge.gold {
+    background: #ffd700;
+    color: #fff;
+  }
+  
+  .rank-badge.silver {
+    background: #c0c0c0;
+    color: #fff;
+  }
+  
+  .rank-badge.bronze {
+    background: #cd7f32;
+    color: #fff;
+  }
+  
+  .user-col {
+    min-width: 200px;
+  }
+  
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  .user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #3498db;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  
+  .user-info small {
+    display: block;
+    color: #95a5a6;
+    font-size: 0.85rem;
+  }
+  
+  .score-col {
+    min-width: 150px;
+  }
+  
+  .score-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  .score-bar {
+    flex: 1;
+    height: 8px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  
+  .score-fill {
+    height: 100%;
+    transition: width 0.5s ease;
+  }
+  
+  .score-fill.excellent { background: #27ae60; }
+  .score-fill.good { background: #f39c12; }
+  .score-fill.medium { background: #e67e22; }
+  .score-fill.poor { background: #e74c3c; }
+  
+  .score-text {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  
+  .level-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  
+  .level-badge.level-высокий {
+    background: #d4edda;
+    color: #155724;
+  }
+  
+  .level-badge.level-средний {
+    background: #fff3cd;
+    color: #856404;
+  }
+  
+  .level-badge.level-низкий {
+    background: #f8d7da;
+    color: #721c24;
+  }
+  
+  .bonus-col {
+    text-align: right;
+  }
+  
+  .actions-col {
+    width: 100px;
+    text-align: center;
+  }
+  
+  .btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 4px 8px;
+    transition: transform 0.2s;
+  }
+  
+  .btn-icon:hover {
+    transform: scale(1.2);
+  }
+  
+  /* Distribution Chart */
+  .distribution-card {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .distribution-card h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: #2c3e50;
+  }
+  
+  .distribution-bar {
+    display: flex;
+    height: 60px;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  
+  .distribution-segment {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 600;
+    font-size: 1.2rem;
+    transition: all 0.3s ease;
+  }
+  
+  .distribution-segment.high { background: #27ae60; }
+  .distribution-segment.medium { background: #f39c12; }
+  .distribution-segment.low { background: #e74c3c; }
+  
+  .distribution-legend {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+  }
+  
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+  }
+  
+  .legend-color.high { background: #27ae60; }
+  .legend-color.medium { background: #f39c12; }
+  .legend-color.low { background: #e74c3c; }
+  
+  /* Loading & Empty States */
+  .loading-state,
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    text-align: center;
+  }
+  
+  .spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3498db;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 16px;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  
+  .empty-icon {
+    font-size: 4rem;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+  
+  /* Buttons */
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.2s;
+  }
+  
+  .btn:hover {
+    opacity: 0.9;
+  }
+  
+  .btn-secondary {
+    background: #95a5a6;
+    color: white;
+  }
+  </style>

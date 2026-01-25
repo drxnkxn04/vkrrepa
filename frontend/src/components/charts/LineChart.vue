@@ -1,5 +1,7 @@
 <template>
+    <div class="chart-container">
     <Line :data="data" :options="options" />
+  </div>
   </template>
   
   <script>
@@ -52,4 +54,14 @@
     }
   };
   </script>
+
+<style>
+.chart-container {
+  width: 100%;
+  height: 400px; /* Фиксированная высота */
+  /* Или можно использовать */
+  /* max-height: 60vh; */ /* 60% от высоты viewport */
+  position: relative;
+}
+</style>
   
