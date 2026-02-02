@@ -145,6 +145,121 @@ REST_FRAMEWORK = {
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60), # Увеличиваем время жизни токена до 60 минут
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "TOKEN_OBTAIN_SERIALIZER": "apps.kpi.jwt_serializer.CustomTokenObtainPairSerializer",  # НОВОЕ
 }
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173", # Порт  Vue (по умолчанию 5173)
+    "http://127.0.0.1:5173",
+]
+
+# ============================================================================
+# CROSSREF API НАСТРОЙКИ
+# ============================================================================
+# ВАЖНО: Crossref требует идентификации для избежания блокировки запросов
+# Рекомендации Crossref: https://www.crossref.org/documentation/retrieve-metadata/rest-api/tips-for-using-the-crossref-rest-api/
+
+# User-Agent должен содержать название проекта и контактную информацию
+CROSSREF_USER_AGENT = os.getenv(
+    'CROSSREF_USER_AGENT',
+    'KPI-Management-System/1.0 (https://github.com/drxnkxn04/vkrrepa; mailto:drynkin.ivan@inbox.ru)'
+)
+
+# Email для идентификации (используется в параметре mailto)
+# Crossref дает приоритет "вежливым" клиентам, которые предоставляют email
+CROSSREF_MAILTO = os.getenv(
+    'CROSSREF_MAILTO',
+    'drynkin.ivan@inbox.ru'  # ⚠️ ЗАМЕНИТЕ НА РЕАЛЬНЫЙ EMAIL!
+)
+
+# Таймауты для запросов к Crossref API (в секундах)
+CROSSREF_TIMEOUT = int(os.getenv('CROSSREF_TIMEOUT', '30'))
+
+# Максимальное количество попыток при ошибке
+CROSSREF_MAX_RETRIES = int(os.getenv('CROSSREF_MAX_RETRIES', '3'))
+
+# Задержка между повторными попытками (в секундах)
+CROSSREF_RETRY_DELAY = int(os.getenv('CROSSREF_RETRY_DELAY', '2'))
+
+# ============================================================================
+# НАСТРОЙКИ ЛОГИРОВАНИЯ
+# ============================================================================
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.kpi': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'apps.integrations': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+
+# Создаем директорию для логов, если её нет
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
+
+# ============================================================================
+# НАСТРОЙКИ ФАЙЛОВОГО ХРАНИЛИЩА
+# ============================================================================
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Максимальный размер загружаемого файла (в байтах)
+# 10MB для документов-подтверждений
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+
+# ============================================================================
+# EMAIL НАСТРОЙКИ (для уведомлений)
+# ============================================================================
+EMAIL_BACKEND = os.getenv(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend'  # Для разработки
+)
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@kpi-system.ru')

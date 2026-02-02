@@ -6,6 +6,7 @@ env/
 venv/
 ENV/
 envs/
+.venv/
 *.egg-info/
 *.pytest_cache/
 .mypy_cache/
@@ -24,6 +25,16 @@ build/
 *.log
 *.tmp
 .DS_Store
+
+# Project-specific
+backend/.venv/
+backend/db.sqlite3
+backend/logs/
+backend/media/
+backend/staticfiles/
+backend/evidence/
+frontend/.env*
+!frontend/.env.example
 
 # Docker/CI
 .dockerignore

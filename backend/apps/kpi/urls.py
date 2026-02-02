@@ -3,7 +3,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from .api import views
+from apps.kpi.api import views
+
+from apps.kpi.api.crossref_views import (
+    CrossrefSyncView, CrossrefSearchByDoiView,
+    CrossrefSearchView, CrossrefHealthCheckView
+)
+
 
 # Создаем роутер для ViewSets
 router = DefaultRouter()
@@ -69,6 +75,27 @@ urlpatterns = [
         'crossref/sync/',
         views.CrossrefSyncView.as_view(),
         name='crossref-sync'
+    ),
+        # Crossref интеграция
+    path(
+        'crossref/sync/',
+        CrossrefSyncView.as_view(),
+        name='crossref-sync'
+    ),
+    path(
+        'crossref/search-by-doi/',
+        CrossrefSearchByDoiView.as_view(),
+        name='crossref-search-doi'
+    ),
+    path(
+        'crossref/search/',
+        CrossrefSearchView.as_view(),
+        name='crossref-search'
+    ),
+    path(
+        'crossref/health/',
+        CrossrefHealthCheckView.as_view(),
+        name='crossref-health'
     ),
 ]
 

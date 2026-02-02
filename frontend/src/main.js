@@ -1,23 +1,30 @@
-
-import { createApp } from 'vue'
-import App from './views/App.vue' // 
-import router from './router'
-import store from './store'
-import api from './services/api' // Импортируем наш api сервис
+import { createApp } from 'vue';
+import App from './App.vue';
+import router from './router';
+import store from './store';
+import apiClient from './services/api';
+import toastPlugin from './plugins/toast'; // НОВЫЙ ИМПОРТ
 
 const app = createApp(App);
 
-// "Инъекция" API-клиента, чтобы его можно было использовать как this.$api
-app.config.globalProperties.$api = api;
+app.config.globalProperties.$api = apiClient;
 
-// Простой мок-объект для уведомлений, чтобы код не ломался
-app.config.globalProperties.$toast = {
-    info: (msg) => console.log('INFO:', msg),
-    success: (msg) => console.log('SUCCESS:', msg),
-    error: (msg) => console.error('ERROR:', msg),
+// ЗАМЕНИТЬ vue-toastification на наш плагин
+app.use(toastPlugin);
+
+// Глобальный обработчик ошибок
+app.config.errorHandler = (err, instance, info) => {
+  console.error('Global error handler:', err);
+  console.error('Component:', instance);
+  console.error('Error info:', info);
+  
+  // Используем наш toast
+  app.config.globalProperties.$toast.error('Произошла ошибка. Пожалуйста, попробуйте еще раз.');
 };
 
 app.use(store);
 app.use(router);
 
 app.mount('#app');
+
+export { toastPlugin };

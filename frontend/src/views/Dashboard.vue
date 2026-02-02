@@ -39,7 +39,6 @@
     </div>
     
     <div class="kpi-groups">
-      <!-- Начало цикла v-for -->
       <div v-for="(group, index) in kpiGroups" :key="index" class="group-card">
         <div class="group-header" @click="toggleGroup(index)">
           <h3>{{ group.name }}</h3>
@@ -50,7 +49,6 @@
           <span class="toggle-icon">{{ expandedGroups[index] ? '−' : '+' }}</span>
         </div>
         
-        <!-- ИСПРАВЛЕНИЕ: Этот блок теперь находится ВНУТРИ group-card -->
         <div v-if="expandedGroups[index]" class="group-details">
           <div v-for="(indicator, idx) in group.indicators" :key="idx" class="indicator-item">
             <div class="indicator-name">{{ indicator.name }}</div>
@@ -69,7 +67,6 @@
           </div>
         </div>
       </div>
-      <!-- Конец цикла v-for -->
     </div>
     
     <div class="recommendations" v-if="recommendations.length > 0">
@@ -98,8 +95,7 @@
       </button>
     </div>
     
-
-     <data-input-modal 
+    <data-input-modal 
       v-if="showModal"
       @close="showModal = false"
       @data-saved="loadData"
@@ -109,7 +105,8 @@
 
 <script>
 import LineChart from '@/components/charts/LineChart.vue';
- import DataInputModal from '@/components/DataInputModal.vue';
+import DataInputModal from '@/components/DataInputModal.vue';
+import { kpiAPI, downloadPDF } from '@/services/api';
 
 export default {
   name: 'DashboardView',
@@ -184,7 +181,7 @@ export default {
   methods: {
     async loadPeriods() {
       try {
-        const response = await this.$api.get('/kpi/periods/');
+        const response = await kpiAPI.getPeriods();
         this.availablePeriods = response.data;
         if (this.availablePeriods.length > 0) {
           const now = new Date();
@@ -203,10 +200,9 @@ export default {
       if (!this.selectedPeriod) return;
       try {
         this.$toast.info('Загрузка данных...');
-        const response = await this.$api.get('/kpi/dashboard/', {
-          params: { period: this.selectedPeriod }
-        });
+        const response = await kpiAPI.getDashboard(this.selectedPeriod);
         const data = response.data;
+        
         this.totalScore = data.total_score;
         this.performanceLevel = data.performance_level;
         this.bonusAmount = data.bonus_amount;
@@ -233,7 +229,7 @@ export default {
           prevYear -= 1;
         }
         const prevPeriod = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
-        const response = await this.$api.get('/kpi/dashboard/', { params: { period: prevPeriod } });
+        const response = await kpiAPI.getDashboard(prevPeriod);
         this.previousScore = response.data.total_score;
       } catch (error) {
         this.previousScore = 0;
@@ -241,7 +237,7 @@ export default {
     },
     async loadRecommendations() {
       try {
-        const response = await this.$api.get('/kpi/recommendations/', { params: { period: this.selectedPeriod } });
+        const response = await kpiAPI.getRecommendations(this.selectedPeriod);
         this.recommendations = response.data;
       } catch (error) {
         console.error('Ошибка загрузки рекомендаций:', error);
@@ -249,7 +245,7 @@ export default {
     },
     async loadChartData() {
       try {
-        const response = await this.$api.get('/kpi/history/', { params: { months: 6 } });
+        const response = await kpiAPI.getHistory(6);
         if (response.data && Array.isArray(response.data)) {
           const history = response.data.reverse();
           this.chartData.labels = history.map(item => this.formatDate(item.period));
@@ -279,19 +275,30 @@ export default {
       return `${monthNames[parseInt(month) - 1]} ${year}`;
     },
     formatCurrency(amount) {
-      return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
+      return new Intl.NumberFormat('ru-RU', { 
+        style: 'currency', 
+        currency: 'RUB', 
+        minimumFractionDigits: 0, 
+        maximumFractionDigits: 0 
+      }).format(amount);
     },
-    generateReport() {
-      const url = `${this.$api.defaults.baseURL}/kpi/reports/generate/?period=${this.selectedPeriod}`;
-      window.open(url, '_blank');
-      this.$toast.success('Отчет сформирован и открыт в новой вкладке');
+    async generateReport() {
+      try {
+        const response = await kpiAPI.generateReport(this.selectedPeriod);
+        const filename = `KPI_Report_${this.selectedPeriod}.pdf`;
+        downloadPDF(response.data, filename);
+        this.$toast.success('Отчет сформирован и загружен');
+      } catch (error) {
+        console.error('Ошибка генерации отчета:', error);
+        this.$toast.error('Не удалось сгенерировать отчет');
+      }
     },
     showDataInputModal() {
       this.showModal = true;
     },
     async markRecommendationDone(recId) {
       try {
-        await this.$api.post(`/kpi/recommendations/${recId}/complete/`);
+        await kpiAPI.completeRecommendation(recId);
         this.$toast.success('Рекомендация отмечена как выполненная');
         await this.loadRecommendations();
       } catch (error) {
