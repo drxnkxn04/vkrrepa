@@ -106,6 +106,7 @@ class KpiCalculatorTestCase(TestCase):
         """Тест расчета KPI при 100% выполнении всех показателей."""
         # Создаем значения с полным выполнением
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator1,
             period=self.test_period,
@@ -115,6 +116,7 @@ class KpiCalculatorTestCase(TestCase):
         )
 
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator2,
             period=self.test_period,
@@ -124,6 +126,7 @@ class KpiCalculatorTestCase(TestCase):
         )
 
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator3,
             period=self.test_period,
@@ -133,6 +136,7 @@ class KpiCalculatorTestCase(TestCase):
         )
 
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator4,
             period=self.test_period,
@@ -151,6 +155,7 @@ class KpiCalculatorTestCase(TestCase):
         """Тест расчета KPI при частичном выполнении."""
         # Статьи Scopus: 5 из 10 = 50%
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator1,
             period=self.test_period,
@@ -161,6 +166,7 @@ class KpiCalculatorTestCase(TestCase):
 
         # Конференции ВАК: 4 из 5 = 80%
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator2,
             period=self.test_period,
@@ -171,6 +177,7 @@ class KpiCalculatorTestCase(TestCase):
 
         # Гранты: 3 из 3 = 100%
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator3,
             period=self.test_period,
@@ -181,6 +188,7 @@ class KpiCalculatorTestCase(TestCase):
 
         # Студенты: 15 из 20 = 75%
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator4,
             period=self.test_period,
@@ -247,6 +255,7 @@ class KpiCalculatorTestCase(TestCase):
         """Тест генерации рекомендаций для показателей с низким выполнением."""
         # Создаем показатель с низким выполнением (< 70%)
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator1,
             period=self.test_period,
@@ -278,6 +287,7 @@ class KpiCalculatorTestCase(TestCase):
         """Тест отсутствия рекомендаций при хорошем выполнении."""
         # Создаем показатель с хорошим выполнением (>= 70%)
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator1,
             period=self.test_period,
@@ -301,6 +311,7 @@ class KpiCalculatorTestCase(TestCase):
 
         for period in periods:
             KpiValue.objects.create(
+                status=KpiValue.STATUS_APPROVED,
                 user=self.user,
                 indicator=self.indicator1,
                 period=period,
@@ -325,6 +336,7 @@ class KpiCalculatorTestCase(TestCase):
         """Тест, что процент выполнения не превышает 100% при перевыполнении."""
         # Создаем показатель с перевыполнением
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user,
             indicator=self.indicator1,
             period=self.test_period,
@@ -395,6 +407,7 @@ class KpiCalculatorIntegrationTestCase(TestCase):
         """Тест массового расчета KPI для всех пользователей."""
         # Создаем данные для обоих пользователей
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user1,
             indicator=self.indicator,
             period=self.test_period,
@@ -403,6 +416,7 @@ class KpiCalculatorIntegrationTestCase(TestCase):
         )
 
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user2,
             indicator=self.indicator,
             period=self.test_period,
@@ -420,6 +434,7 @@ class KpiCalculatorIntegrationTestCase(TestCase):
         """Тест получения списка лучших сотрудников."""
         # User1: 80% выполнение
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user1,
             indicator=self.indicator,
             period=self.test_period,
@@ -429,6 +444,7 @@ class KpiCalculatorIntegrationTestCase(TestCase):
 
         # User2: 50% выполнение
         KpiValue.objects.create(
+            status=KpiValue.STATUS_APPROVED,
             user=self.user2,
             indicator=self.indicator,
             period=self.test_period,

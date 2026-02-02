@@ -48,6 +48,19 @@ class KpiIndicator(models.Model):
 
 
 class KpiValue(models.Model):
+    """KPI value workflow data"""
+    STATUS_DRAFT = 'draft'
+    STATUS_SUBMITTED = 'submitted'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_SUBMITTED, 'Submitted'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    )
+
     """Значения KPI для пользователей"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kpi_values')
     indicator = models.ForeignKey(KpiIndicator, on_delete=models.CASCADE)
@@ -55,6 +68,22 @@ class KpiValue(models.Model):
     actual_value = models.FloatField(default=0.0, verbose_name='Фактическое значение')
     target_value = models.FloatField(default=0.0, verbose_name='Плановое значение')
     is_verified = models.BooleanField(default=False, verbose_name='Подтверждено')
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_DRAFT,
+        verbose_name='Status'
+    )
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    reviewer = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_kpi_values'
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_comment = models.TextField(blank=True)
     evidence = models.FileField(upload_to='evidence/%Y/%m/', blank=True, null=True,
                                 verbose_name='Подтверждающий документ')
     comment = models.TextField(blank=True, verbose_name='Комментарий')

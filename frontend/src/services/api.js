@@ -136,6 +136,10 @@ export const kpiAPI = {
   getValues() {
     return apiClient.get('/kpi/values/');
   },
+
+  getValuesByParams(params) {
+    return apiClient.get('/kpi/values/', { params });
+  },
   
   createValue(data) {
     // Если есть файл, используем FormData
@@ -163,6 +167,22 @@ export const kpiAPI = {
   
   deleteValue(id) {
     return apiClient.delete(`/kpi/values/${id}/`);
+  },
+
+  submitValue(id) {
+    return apiClient.post(`/kpi/values/${id}/submit/`);
+  },
+
+  approveValue(id, review_comment) {
+    return apiClient.post(`/kpi/values/${id}/approve/`, { review_comment });
+  },
+
+  rejectValue(id, review_comment) {
+    return apiClient.post(`/kpi/values/${id}/reject/`, { review_comment });
+  },
+
+  getPendingValues() {
+    return apiClient.get('/kpi/values/pending/');
   },
   
   // === Справочники ===

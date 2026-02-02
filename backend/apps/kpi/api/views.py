@@ -4,6 +4,7 @@ from rest_framework import viewsets, status, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.views import APIView
 from django.http import FileResponse, HttpResponse
 from django.contrib.auth import get_user_model
@@ -44,14 +45,130 @@ class KpiValueViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Возвращает только значения текущего пользователя."""
-        return KpiValue.objects.filter(user=self.request.user).select_related(
-            'indicator', 'indicator__group'
+        """Return KPI values with access scope."""
+        qs = KpiValue.objects.select_related(
+            'indicator', 'indicator__group', 'user', 'reviewer'
         )
 
+        status_param = self.request.query_params.get('status')
+        scope = self.request.query_params.get('scope')
+        user_id = self.request.query_params.get('user_id')
+
+        if self.request.user.is_staff and (scope == 'all' or status_param or user_id or self.action in ('approve', 'reject', 'pending')):
+            if user_id:
+                qs = qs.filter(user_id=user_id)
+        else:
+            qs = qs.filter(user=self.request.user)
+
+        if status_param:
+            qs = qs.filter(status=status_param)
+
+        return qs
+
     def perform_create(self, serializer):
-        """Автоматически устанавливает текущего пользователя при создании."""
-        serializer.save(user=self.request.user)
+        """Auto-attach user and set draft status."""
+        serializer.save(
+            user=self.request.user,
+            status=KpiValue.STATUS_DRAFT,
+            is_verified=False
+        )
+
+    def _ensure_owner(self, obj):
+        if obj.user_id != self.request.user.id:
+            raise PermissionDenied('Access denied.')
+
+    def _ensure_editable(self, obj):
+        if obj.status not in (KpiValue.STATUS_DRAFT, KpiValue.STATUS_REJECTED):
+            raise ValidationError('Only draft or rejected values can be edited.')
+
+    def update(self, request, *args, **kwargs):
+        obj = self.get_object()
+        self._ensure_owner(obj)
+        self._ensure_editable(obj)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        obj = self.get_object()
+        self._ensure_owner(obj)
+        self._ensure_editable(obj)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        obj = self.get_object()
+        self._ensure_owner(obj)
+        self._ensure_editable(obj)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    def submit(self, request, pk=None):
+        """Submit KPI value for review."""
+        obj = self.get_object()
+        self._ensure_owner(obj)
+
+        if obj.status not in (KpiValue.STATUS_DRAFT, KpiValue.STATUS_REJECTED):
+            raise ValidationError('Only draft or rejected values can be submitted.')
+
+        obj.status = KpiValue.STATUS_SUBMITTED
+        obj.submitted_at = timezone.now()
+        obj.reviewer = None
+        obj.reviewed_at = None
+        obj.review_comment = ''
+        obj.is_verified = False
+        obj.save(update_fields=[
+            'status', 'submitted_at', 'reviewer', 'reviewed_at', 'review_comment', 'is_verified'
+        ])
+
+        return Response(KpiValueSerializer(obj).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def approve(self, request, pk=None):
+        """Approve submitted KPI value."""
+        obj = self.get_object()
+
+        if obj.status != KpiValue.STATUS_SUBMITTED:
+            raise ValidationError('Only submitted values can be approved.')
+
+        obj.status = KpiValue.STATUS_APPROVED
+        obj.is_verified = True
+        obj.reviewer = request.user
+        obj.reviewed_at = timezone.now()
+        comment = request.data.get('review_comment')
+        if comment is not None:
+            obj.review_comment = comment
+        obj.save(update_fields=[
+            'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
+        ])
+
+        return Response(KpiValueSerializer(obj).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def reject(self, request, pk=None):
+        """Reject submitted KPI value."""
+        obj = self.get_object()
+
+        if obj.status != KpiValue.STATUS_SUBMITTED:
+            raise ValidationError('Only submitted values can be rejected.')
+
+        obj.status = KpiValue.STATUS_REJECTED
+        obj.is_verified = False
+        obj.reviewer = request.user
+        obj.reviewed_at = timezone.now()
+        comment = request.data.get('review_comment')
+        if comment is not None:
+            obj.review_comment = comment
+        obj.save(update_fields=[
+            'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
+        ])
+
+        return Response(KpiValueSerializer(obj).data)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
+    def pending(self, request):
+        """List submitted KPI values pending review."""
+        qs = KpiValue.objects.filter(status=KpiValue.STATUS_SUBMITTED).select_related(
+            'indicator', 'indicator__group', 'user', 'reviewer'
+        )
+        return Response(KpiValueSerializer(qs, many=True).data)
 
     @action(detail=False, methods=['get'])
     def dashboard(self, request):

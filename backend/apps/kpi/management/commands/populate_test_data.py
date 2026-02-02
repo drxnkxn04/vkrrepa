@@ -133,6 +133,7 @@ class Command(BaseCommand):
                         'actual_value': round(actual, 1),
                         'target_value': val_data['target'],
                         'is_verified': True,
+                    'status': KpiValue.STATUS_APPROVED,
                         'comment': f'Тестовые данные для демонстрации за {period}'
                     }
                 )

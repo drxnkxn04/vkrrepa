@@ -196,7 +196,8 @@ class CrossrefSyncView(APIView):
                             'actual_value': 1.0,
                             'target_value': indicator.max_value,
                             'comment': comment,
-                            'is_verified': False
+                            'is_verified': True,
+                            'status': KpiValue.STATUS_APPROVED
                         }
                     )
 

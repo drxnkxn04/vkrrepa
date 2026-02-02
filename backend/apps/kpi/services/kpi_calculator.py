@@ -167,7 +167,8 @@ class KpiCalculator:
             kpi_value = KpiValue.objects.get(
                 user_id=user_id,
                 indicator=indicator,
-                period=period
+                period=period,
+                status=KpiValue.STATUS_APPROVED
             )
             actual_value = float(kpi_value.actual_value)
             target_value = float(kpi_value.target_value)
@@ -274,7 +275,8 @@ class KpiCalculator:
         # Получаем все показатели с низким выполнением
         kpi_values = KpiValue.objects.filter(
             user_id=user_id,
-            period=period
+            period=period,
+            status=KpiValue.STATUS_APPROVED
         ).select_related('indicator', 'indicator__group')
 
         recommendations = []

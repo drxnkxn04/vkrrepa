@@ -69,6 +69,48 @@
       </div>
     </div>
     
+    <div class="values-section">
+      <h2>Мои достижения за период</h2>
+      <div v-if="valuesLoading" class="values-loading">Загрузка...</div>
+      <div v-else-if="values.length > 0" class="values-table-wrap">
+        <table class="values-table">
+          <thead>
+            <tr>
+              <th>Показатель</th>
+              <th>Факт</th>
+              <th>План</th>
+              <th>Статус</th>
+              <th>Комментарий проверки</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="value in values" :key="value.id">
+              <td>{{ value.indicator?.name || '—' }}</td>
+              <td>{{ value.actual_value }}</td>
+              <td>{{ value.target_value }}</td>
+              <td>
+                <span class="status-badge" :class="statusClass(value.status)">
+                  {{ formatStatus(value.status) }}
+                </span>
+              </td>
+              <td>{{ value.review_comment || '—' }}</td>
+              <td>
+                <button
+                  v-if="canSubmit(value)"
+                  class="btn btn-sm btn-outline"
+                  @click="submitValue(value)"
+                >
+                  Отправить на проверку
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="values-empty">Нет данных за выбранный период</div>
+    </div>
+
     <div class="recommendations" v-if="recommendations.length > 0">
       <h2>Рекомендации по улучшению</h2>
       <div v-for="(rec, index) in recommendations" :key="index" class="recommendation-card">
@@ -125,6 +167,8 @@ export default {
       kpiGroups: [],
       expandedGroups: [],
       recommendations: [],
+      values: [],
+      valuesLoading: false,
       showModal: false,
       chartData: {
         labels: [],
@@ -211,6 +255,7 @@ export default {
         
         await this.loadPreviousPeriodData();
         await this.loadRecommendations();
+        await this.loadValues();
         await this.loadChartData();
         
         this.$toast.success('Данные успешно загружены');
@@ -242,6 +287,44 @@ export default {
       } catch (error) {
         console.error('Ошибка загрузки рекомендаций:', error);
       }
+    },
+    async loadValues() {
+      this.valuesLoading = true;
+      try {
+        const response = await kpiAPI.getValues();
+        const allValues = Array.isArray(response.data) ? response.data : [];
+        this.values = allValues.filter(v => v.period === this.selectedPeriod);
+      } catch (error) {
+        console.error('?????? ???????? ???????? KPI:', error);
+        this.values = [];
+      } finally {
+        this.valuesLoading = false;
+      }
+    },
+    async submitValue(value) {
+      try {
+        await kpiAPI.submitValue(value.id);
+        this.$toast.success('?????????? ?? ????????');
+        await this.loadValues();
+      } catch (error) {
+        console.error('?????? ???????? ?? ????????:', error);
+        this.$toast.error('?? ??????? ????????? ?? ????????');
+      }
+    },
+    canSubmit(value) {
+      return value && (value.status === 'draft' || value.status === 'rejected');
+    },
+    formatStatus(status) {
+      const map = {
+        draft: '????????',
+        submitted: '?? ????????',
+        approved: '????????????',
+        rejected: '?????????'
+      };
+      return map[status] || status || '-';
+    },
+    statusClass(status) {
+      return `status-${status}`;
     },
     async loadChartData() {
       try {
@@ -362,4 +445,18 @@ export default {
 .btn-secondary { background-color: #6c757d; color: white; }
 .btn:hover { opacity: 0.9; }
 .btn-outline { background-color: transparent; border: 1px solid #6c757d; color: #6c757d; }
+
+.values-section { margin: 32px 0; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 20px; }
+.values-table-wrap { overflow-x: auto; }
+.values-table { width: 100%; border-collapse: collapse; }
+.values-table th, .values-table td { padding: 10px; border-bottom: 1px solid #e9ecef; text-align: left; }
+.values-table th { background: #f8f9fa; }
+.values-empty { color: #6c757d; }
+.values-loading { color: #6c757d; }
+.status-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; }
+.status-draft { background: #e9ecef; color: #495057; }
+.status-submitted { background: #fff3cd; color: #856404; }
+.status-approved { background: #d4edda; color: #155724; }
+.status-rejected { background: #f8d7da; color: #721c24; }
+.btn-sm { padding: 6px 10px; font-size: 0.85rem; }
 </style>

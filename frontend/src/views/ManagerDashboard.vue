@@ -185,6 +185,48 @@
         </div>
   
         <!-- Диаграмма распределения -->
+        <div class="pending-card">
+          <h2>На проверке</h2>
+          <div v-if="pendingLoading" class="pending-loading">Загрузка...</div>
+          <div v-else-if="pendingValues.length > 0" class="table-responsive">
+            <table class="pending-table">
+              <thead>
+                <tr>
+                  <th>Сотрудник</th>
+                  <th>Показатель</th>
+                  <th>Период</th>
+                  <th>Факт</th>
+                  <th>План</th>
+                  <th>Комментарий</th>
+                  <th>Решение</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="value in pendingValues" :key="value.id">
+                  <td>{{ value.user?.username || '—' }}</td>
+                  <td>{{ value.indicator?.name || '—' }}</td>
+                  <td>{{ formatPeriod(value.period) }}</td>
+                  <td>{{ value.actual_value }}</td>
+                  <td>{{ value.target_value }}</td>
+                  <td>
+                    <input
+                      class="review-input"
+                      type="text"
+                      v-model="reviewComments[value.id]"
+                      placeholder="Комментарий"
+                    />
+                  </td>
+                  <td>
+                    <button class="btn btn-sm btn-approve" @click="approveValue(value)">Подтвердить</button>
+                    <button class="btn btn-sm btn-reject" @click="rejectValue(value)">Отклонить</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="pending-empty">Нет записей на проверке</div>
+        </div>
+
         <div class="distribution-card">
           <h2>Распределение по уровням эффективности</h2>
           <div class="distribution-chart">
@@ -249,7 +291,10 @@
         loading: false,
         searchQuery: '',
         selectedFilter: 'all',
-        sortBy: 'score-desc'
+        sortBy: 'score-desc',
+        pendingValues: [],
+        pendingLoading: false,
+        reviewComments: {}
       };
     },
     computed: {
@@ -308,6 +353,7 @@
           this.users = response.data.users;
           this.filteredUsers = [...this.users];
           this.sortUsers();
+          await this.loadPending();
         } catch (error) {
           console.error('Ошибка загрузки данных:', error);
           this.$toast.error('Не удалось загрузить данные дашборда');
@@ -344,6 +390,40 @@
       setFilter(filter) {
         this.selectedFilter = filter;
         this.filterUsers();
+      },
+      async loadPending() {
+        this.pendingLoading = true;
+        try {
+          const response = await kpiAPI.getPendingValues();
+          this.pendingValues = Array.isArray(response.data) ? response.data : [];
+        } catch (error) {
+          console.error('Ошибка загрузки на проверке:', error);
+          this.pendingValues = [];
+        } finally {
+          this.pendingLoading = false;
+        }
+      },
+      async approveValue(value) {
+        try {
+          const comment = this.reviewComments[value.id] || '';
+          await kpiAPI.approveValue(value.id, comment);
+          this.$toast.success('Запись подтверждена');
+          await this.loadPending();
+        } catch (error) {
+          console.error('Ошибка подтверждения:', error);
+          this.$toast.error('Не удалось подтвердить');
+        }
+      },
+      async rejectValue(value) {
+        try {
+          const comment = this.reviewComments[value.id] || '';
+          await kpiAPI.rejectValue(value.id, comment);
+          this.$toast.success('Запись отклонена');
+          await this.loadPending();
+        } catch (error) {
+          console.error('Ошибка отклонения:', error);
+          this.$toast.error('Не удалось отклонить');
+        }
       },
       sortUsers() {
         const [field, order] = this.sortBy.split('-');
@@ -844,4 +924,15 @@
     background: #95a5a6;
     color: white;
   }
-  </style>
+  
+.pending-card { background: white; border-radius: 8px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 24px; }
+.pending-card h2 { margin-top: 0; margin-bottom: 16px; color: #2c3e50; }
+.pending-table { width: 100%; border-collapse: collapse; }
+.pending-table th, .pending-table td { padding: 10px; border-bottom: 1px solid #e9ecef; text-align: left; }
+.pending-table th { background: #f8f9fa; }
+.pending-empty, .pending-loading { color: #6c757d; }
+.review-input { width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; }
+.btn-approve { background: #27ae60; color: #fff; margin-right: 6px; }
+.btn-reject { background: #e74c3c; color: #fff; }
+.btn-sm { padding: 6px 10px; font-size: 0.85rem; }
+</style>

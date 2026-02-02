@@ -2,9 +2,7 @@
 """
 Быстрое заполнение базы данных тестовыми KPI данными
 
-Использование:
-1. Скопируй этот файл в папку backend/
-2. Запусти: python quick_populate.py
+
 """
 
 import os
@@ -152,6 +150,7 @@ def create_test_data():
                     'actual_value': round(actual, 1),
                     'target_value': val_data['target'],
                     'is_verified': True,
+                    'status': KpiValue.STATUS_APPROVED,
                     'comment': f'Тестовые данные для демонстрации за {period}'
                 }
             )
@@ -179,6 +178,6 @@ if __name__ == '__main__':
     try:
         create_test_data()
     except Exception as e:
-        print(f'\n❌ Ошибка: {e}')
+        print(f'\n Ошибка: {e}')
         print('Убедись, что запускаешь скрипт из папки backend/')
         sys.exit(1)

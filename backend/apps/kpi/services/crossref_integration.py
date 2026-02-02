@@ -174,7 +174,8 @@ class CrossrefKpiIntegration:
             defaults={
                 'actual_value': actual_value,
                 'target_value': target_value,
-                'is_verified': True,  # Данные из API считаем верифицированными
+                'is_verified': True,
+                'status': KpiValue.STATUS_APPROVED,  # Данные из API считаем верифицированными
                 'comment': f'Автоматически обновлено из Crossref API {timezone.now().strftime("%Y-%m-%d %H:%M")}'
             }
         )
