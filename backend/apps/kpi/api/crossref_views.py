@@ -1,23 +1,23 @@
 # backend/apps/kpi/api/crossref_views.py
 
-print("=" * 80)
-print(" ЗАГРУЖЕН ФАЙЛ: backend/apps/kpi/api/crossref_views.py")
-print("=" * 80)
+from collections import defaultdict
+import logging
+import re
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
+from django.db import transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from django.utils import timezone
-from django.db import transaction
-import logging
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.integrations.services.crossref_service import (
-    CrossrefAPIService,
     CrossrefAPIError,
-    CrossrefTimeoutError,
+    CrossrefAPIService,
     CrossrefConnectionError,
-    CrossrefRateLimitError
+    CrossrefRateLimitError,
+    CrossrefTimeoutError,
+    CrossrefValidationError,
 )
 from apps.kpi.models import KpiIndicator, KpiValue
 
@@ -26,11 +26,16 @@ logger = logging.getLogger(__name__)
 
 class CrossrefSyncView(APIView):
     """
-    Синхронизация публикаций из Crossref API с автоматическим сохранением в KPI.
+    Sync Crossref publications and store them in KPI.
 
-    POST /api/kpi/crossref/sync/
+    Storage strategy:
+    - one KpiValue per (user, indicator, period)
+    - actual_value = number of unique DOIs
     """
+
     permission_classes = [IsAuthenticated]
+
+    DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 
     def post(self, request, *args, **kwargs):
         user = request.user
@@ -38,196 +43,249 @@ class CrossrefSyncView(APIView):
         year = request.data.get('year')
         save_to_kpi = request.data.get('save_to_kpi', True)
 
-        logger.info("=" * 80)
-        logger.info(f" ВЫЗВАН CrossrefSyncView.post() для {user.username}")
-        logger.info("=" * 80)
+        if not orcid and hasattr(user, 'profile') and user.profile.orcid:
+            orcid = user.profile.orcid
 
-        # Валидация ORCID
         if not orcid:
-            if hasattr(user, 'profile') and user.profile.orcid:
-                orcid = user.profile.orcid
-            else:
-                return Response(
-                    {'success': False, 'error': 'ORCID не указан'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        try:
-            crossref_service = CrossrefAPIService()
-
-            logger.info(f" Начало синхронизации для {user.username} с ORCID {orcid}")
-
-            # Получаем публикации из Crossref
-            publications = crossref_service.get_publications_by_orcid(
-                orcid=orcid,
-                year=year,
-                max_results=100
+            return Response(
+                {'success': False, 'error': 'ORCID is required'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-            logger.info(f" Найдено {len(publications)} публикаций")
+        try:
+            normalized_year = self._normalize_year(year)
+            crossref_service = CrossrefAPIService()
 
-            # Сохраняем в KPI
+            publications = crossref_service.get_publications_by_orcid(
+                orcid=orcid,
+                year=normalized_year,
+                max_results=100,
+            )
+
             saved_count = 0
             skipped_count = 0
             errors = []
 
             if save_to_kpi and publications:
-                logger.info(f" Начинаем сохранение в KPI...")
                 saved_count, skipped_count, errors = self._save_publications_to_kpi(
                     user=user,
-                    publications=publications
+                    publications=publications,
                 )
 
-            logger.info(f"✅ ИТОГО: saved={saved_count}, skipped={skipped_count}, errors={len(errors)}")
-
-            return Response({
-                'success': True,
-                'publications_count': len(publications),
-                'saved_to_kpi': saved_count,
-                'skipped': skipped_count,
-                'errors': errors,
-                'publications': publications,
-                'orcid': orcid,
-                'year': year
-            })
-
-        except Exception as e:
-            logger.exception(f" Ошибка: {str(e)}")
             return Response(
-                {'success': False, 'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {
+                    'success': True,
+                    'publications_count': len(publications),
+                    'saved_to_kpi': saved_count,
+                    'skipped': skipped_count,
+                    'errors': errors,
+                    'publications': publications,
+                    'orcid': orcid,
+                    'year': normalized_year,
+                }
             )
 
+        except ValueError as exc:
+            return Response(
+                {'success': False, 'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except CrossrefValidationError as exc:
+            return Response(
+                {'success': False, 'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except CrossrefRateLimitError as exc:
+            return Response(
+                {'success': False, 'error': str(exc)},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        except (CrossrefTimeoutError, CrossrefConnectionError) as exc:
+            return Response(
+                {'success': False, 'error': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except CrossrefAPIError as exc:
+            return Response(
+                {'success': False, 'error': str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as exc:
+            logger.exception('Unexpected error in Crossref sync: %s', exc)
+            return Response(
+                {'success': False, 'error': 'Internal server error'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _normalize_year(self, year):
+        if year in (None, '', 'null'):
+            return None
+
+        try:
+            year_int = int(year)
+        except (TypeError, ValueError) as exc:
+            raise ValueError('year must be an integer') from exc
+
+        current_year = timezone.now().year
+        if year_int < 1900 or year_int > current_year + 1:
+            raise ValueError(f'year is out of range: 1900..{current_year + 1}')
+
+        return year_int
+
     def _save_publications_to_kpi(self, user, publications):
-        """Сохранение публикаций в KPI."""
         saved_count = 0
         skipped_count = 0
         errors = []
 
-        # Получаем показатели
-        logger.info(" Поиск показателей KPI...")
-
-        indicators = {
-            'q1q2': None,
-            'q3q4': None,
-            'conf': None
-        }
-
-        try:
-            indicators['q1q2'] = KpiIndicator.objects.get(
-                name='Статьи в журналах Scopus/WoS Q1-Q2'
-            )
-            logger.info(f"✅ Q1-Q2: ID={indicators['q1q2'].id}")
-        except KpiIndicator.DoesNotExist:
-            logger.warning("⚠️ Q1-Q2 не найден")
-
-        try:
-            indicators['q3q4'] = KpiIndicator.objects.get(
-                name='Статьи в журналах Scopus/WoS Q3-Q4'
-            )
-            logger.info(f"✅ Q3-Q4: ID={indicators['q3q4'].id}")
-        except KpiIndicator.DoesNotExist:
-            logger.warning("⚠️ Q3-Q4 не найден")
-
-        try:
-            indicators['conf'] = KpiIndicator.objects.get(
-                name='Публикации в трудах конференций'
-            )
-            logger.info(f"✅ Конференции: ID={indicators['conf'].id}")
-        except KpiIndicator.DoesNotExist:
-            logger.warning("⚠️ Конференции не найдены")
-
+        indicators = self._get_indicators()
         if not any(indicators.values()):
-            error = "❌ НИ ОДИН показатель не найден! Запустите: python manage.py init_kpi_structure"
+            error = 'Publication KPI indicators are missing. Run init_kpi_structure.'
             logger.error(error)
             return 0, len(publications), [error]
 
-        logger.info(f" Обрабатываем {len(publications)} публикаций...")
+        grouped = defaultdict(list)
 
-        for idx, pub in enumerate(publications, 1):
+        for pub in publications:
+            doi = (pub.get('doi') or '').strip().upper()
+            pub_type = (pub.get('type') or '').strip().lower()
+            year = pub.get('year')
+
+            if not doi or not year:
+                skipped_count += 1
+                continue
+
+            indicator = self._select_indicator(pub_type, indicators)
+            if indicator is None:
+                skipped_count += 1
+                continue
+
+            period = f'{int(year)}-01'
+            grouped[(indicator.id, period)].append(pub)
+
+        indicator_map = {indicator.id: indicator for indicator in indicators.values() if indicator}
+
+        for (indicator_id, period), group_pubs in grouped.items():
+            indicator = indicator_map.get(indicator_id)
+            if indicator is None:
+                skipped_count += len(group_pubs)
+                continue
+
+            unique_in_batch = {}
+            for pub in group_pubs:
+                doi = pub['doi'].strip().upper()
+                unique_in_batch[doi] = pub
+
             try:
-                doi = pub.get('doi', 'NO_DOI')
-                pub_type = pub.get('type', '').lower()
-                year = pub.get('year')
-
-                logger.info(f"[{idx}/{len(publications)}] {doi} ({pub_type})")
-
-                # Определяем показатель
-                indicator = None
-                if pub_type == 'journal-article':
-                    indicator = indicators['q3q4'] or indicators['q1q2']
-                elif pub_type == 'proceedings-article':
-                    indicator = indicators['conf']
-
-                if not indicator:
-                    logger.info(f"  ⏭️ Пропуск: нет показателя для типа '{pub_type}'")
-                    skipped_count += 1
-                    continue
-
-                if not year:
-                    logger.warning(f"  ⚠️ Пропуск: нет года")
-                    skipped_count += 1
-                    continue
-
-                period = f"{year}-01"
-
-                # Проверяем дубликат
-                existing = KpiValue.objects.filter(
-                    user=user,
-                    indicator=indicator,
-                    period=period,
-                    comment__icontains=doi
-                ).exists()
-
-                if existing:
-                    logger.info(f"  ⏭️ Уже есть")
-                    skipped_count += 1
-                    continue
-
-                # Сохраняем
-                comment = self._format_comment(pub)
-
                 with transaction.atomic():
-                    kpi_value, created = KpiValue.objects.get_or_create(
+                    kpi_value, _ = KpiValue.objects.get_or_create(
                         user=user,
                         indicator=indicator,
                         period=period,
                         defaults={
-                            'actual_value': 1.0,
+                            'actual_value': 0.0,
                             'target_value': indicator.max_value,
-                            'comment': comment,
                             'is_verified': True,
-                            'status': KpiValue.STATUS_APPROVED
-                        }
+                            'status': KpiValue.STATUS_APPROVED,
+                            'comment': '',
+                        },
                     )
 
-                    if not created:
-                        kpi_value.actual_value += 1.0
-                        kpi_value.comment += f"\n\n{'=' * 50}\n\n{comment}"
-                        kpi_value.save()
+                    existing_dois = self._extract_dois_from_comment(kpi_value.comment)
+                    new_pubs = [
+                        pub for doi, pub in unique_in_batch.items() if doi not in existing_dois
+                    ]
 
-                    logger.info(f"  ✅ {'Создано' if created else 'Обновлено'} KPI ID={kpi_value.id}")
-                    saved_count += 1
+                    if not new_pubs:
+                        skipped_count += len(unique_in_batch)
+                        continue
 
-            except Exception as e:
-                error = f"❌ {pub.get('doi', 'UNKNOWN')}: {str(e)}"
-                logger.error(error)
-                errors.append(error)
+                    merged_dois = existing_dois | set(unique_in_batch.keys())
+                    kpi_value.actual_value = float(len(merged_dois))
+                    kpi_value.target_value = indicator.max_value
+                    kpi_value.is_verified = True
+                    kpi_value.status = KpiValue.STATUS_APPROVED
+                    kpi_value.comment = self._append_sync_block(kpi_value.comment, new_pubs)
+                    kpi_value.save(
+                        update_fields=[
+                            'actual_value',
+                            'target_value',
+                            'is_verified',
+                            'status',
+                            'comment',
+                            'updated_at',
+                        ]
+                    )
 
+                    saved_count += len(new_pubs)
+                    skipped_count += len(unique_in_batch) - len(new_pubs)
+
+            except Exception as exc:
+                err = f'KPI save error (indicator={indicator_id}, period={period}): {exc}'
+                logger.error(err)
+                errors.append(err)
+
+        logger.info(
+            'Crossref sync summary: saved=%s skipped=%s errors=%s',
+            saved_count,
+            skipped_count,
+            len(errors),
+        )
         return saved_count, skipped_count, errors
 
-    def _format_comment(self, pub):
-        """Форматирование комментария."""
-        authors = ', '.join(pub.get('authors', [])[:3])
-        if len(pub.get('authors', [])) > 3:
-            authors += ' и др.'
+    def _get_indicators(self):
+        indicators = {'q1q2': None, 'q3q4': None, 'conf': None}
 
-        return f""" {pub['title']}
- {authors}
- {pub.get('journal', 'Не указан')}
- {pub.get('year', 'Не указан')}
- DOI: {pub['doi']}
-[Crossref API]"""
+        indicators['q1q2'] = KpiIndicator.objects.filter(name__icontains='Q1-Q2').first()
+        if indicators['q1q2'] is None:
+            logger.warning('Indicator not found: Q1-Q2')
+
+        indicators['q3q4'] = KpiIndicator.objects.filter(name__icontains='Q3-Q4').first()
+        if indicators['q3q4'] is None:
+            logger.warning('Indicator not found: Q3-Q4')
+
+        conference_ru = '\u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446'
+        indicators['conf'] = (
+            KpiIndicator.objects.filter(name__icontains='conference').first()
+            or KpiIndicator.objects.filter(name__icontains=conference_ru).first()
+        )
+        if indicators['conf'] is None:
+            logger.warning('Indicator not found: conferences')
+
+        if indicators['q3q4'] is None and indicators['q1q2'] is not None:
+            logger.warning('Q3-Q4 indicator not found, fallback to Q1-Q2 for journal articles')
+
+        return indicators
+
+    def _select_indicator(self, pub_type, indicators):
+        if pub_type == 'journal-article':
+            return indicators['q3q4'] or indicators['q1q2']
+        if pub_type == 'proceedings-article':
+            return indicators['conf']
+        return None
+
+    def _extract_dois_from_comment(self, comment):
+        if not comment:
+            return set()
+        return {match.group(0).upper() for match in self.DOI_PATTERN.finditer(comment)}
+
+    def _append_sync_block(self, existing_comment, publications):
+        ts = timezone.now().strftime('%Y-%m-%d %H:%M')
+        lines = [f'=== Crossref sync {ts} ===']
+
+        for pub in publications:
+            lines.append(self._format_publication_line(pub))
+
+        block = '\n'.join(lines)
+        if existing_comment and existing_comment.strip():
+            return f'{existing_comment.strip()}\n\n{block}'
+        return block
+
+    def _format_publication_line(self, pub):
+        title = (pub.get('title') or '').strip()
+        year = pub.get('year') or 'N/A'
+        doi = (pub.get('doi') or '').strip().upper()
+        journal = (pub.get('journal') or '').strip()
+        return f'- {year} | {title} | {journal} | DOI: {doi}'
 
 
 class CrossrefSearchByDoiView(APIView):
@@ -236,14 +294,25 @@ class CrossrefSearchByDoiView(APIView):
     def get(self, request):
         doi = request.query_params.get('doi')
         if not doi:
-            return Response({'error': 'doi required'}, status=400)
+            return Response({'error': 'doi required'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             service = CrossrefAPIService()
-            pub = service.get_publication_by_doi(doi)
-            return Response(pub if pub else {'error': 'Not found'}, status=200 if pub else 404)
-        except Exception as e:
-            return Response({'error': str(e)}, status=500)
+            publication = service.get_publication_by_doi(doi)
+            if publication is None:
+                return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(publication)
+        except CrossrefValidationError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except CrossrefRateLimitError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except (CrossrefTimeoutError, CrossrefConnectionError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except CrossrefAPIError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception as exc:
+            logger.exception('Unexpected DOI search error: %s', exc)
+            return Response({'error': 'Internal server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class CrossrefSearchView(APIView):
@@ -252,23 +321,38 @@ class CrossrefSearchView(APIView):
     def get(self, request):
         query = request.query_params.get('query')
         if not query:
-            return Response({'error': 'query required'}, status=400)
+            return Response({'error': 'query required'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             service = CrossrefAPIService()
-            pubs = service.search_publications(query, max_results=20)
-            return Response({'publications': pubs, 'count': len(pubs)})
-        except Exception as e:
-            return Response({'error': str(e)}, status=500)
+            publications = service.search_publications(query, max_results=20)
+            return Response({'publications': publications, 'count': len(publications)})
+        except CrossrefValidationError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except CrossrefRateLimitError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except (CrossrefTimeoutError, CrossrefConnectionError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except CrossrefAPIError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception as exc:
+            logger.exception('Unexpected Crossref search error: %s', exc)
+            return Response({'error': 'Internal server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class CrossrefHealthCheckView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        try:
-            service = CrossrefAPIService()
-            service._make_request({'rows': 1})
-            return Response({'status': 'ok', 'timestamp': timezone.now().isoformat()})
-        except Exception as e:
-            return Response({'status': 'error', 'message': str(e)}, status=503)
+        service = CrossrefAPIService()
+        result = service.health_check()
+
+        payload = {
+            'status': result.get('status', 'error'),
+            'timestamp': timezone.now().isoformat(),
+        }
+        if result.get('status') != 'ok':
+            payload['message'] = result.get('message', 'Crossref unavailable')
+            return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(payload)
