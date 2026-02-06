@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.views import APIView
-from django.http import FileResponse, HttpResponse
+from django.http import HttpResponse
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import datetime
@@ -19,7 +19,7 @@ from ..serializers import (
     KpiValueSerializer,
     KpiRecommendationSerializer
 )
-from ..services import KpiCalculator, CrossrefKpiIntegration, KpiReportGenerator
+from ..services import KpiCalculator, KpiReportGenerator
 
 
 User = get_user_model()
@@ -53,6 +53,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         status_param = self.request.query_params.get('status')
         scope = self.request.query_params.get('scope')
         user_id = self.request.query_params.get('user_id')
+        period = self.request.query_params.get('period')
 
         if self.request.user.is_staff and (scope == 'all' or status_param or user_id or self.action in ('approve', 'reject', 'pending')):
             if user_id:
@@ -62,6 +63,9 @@ class KpiValueViewSet(viewsets.ModelViewSet):
 
         if status_param:
             qs = qs.filter(status=status_param)
+
+        if period:
+            qs = qs.filter(period=period)
 
         return qs
 
@@ -168,6 +172,9 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         qs = KpiValue.objects.filter(status=KpiValue.STATUS_SUBMITTED).select_related(
             'indicator', 'indicator__group', 'user', 'reviewer'
         )
+        period = request.query_params.get('period')
+        if period:
+            qs = qs.filter(period=period)
         return Response(KpiValueSerializer(qs, many=True).data)
 
     @action(detail=False, methods=['get'])
@@ -253,15 +260,24 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         """
         Получение списка доступных периодов с данными.
 
+        ДЛЯ РУКОВОДИТЕЛЕЙ: возвращает ВСЕ периоды в системе
+        ДЛЯ СОТРУДНИКОВ: возвращает только их периоды
+
         Returns:
         Список периодов в формате YYYY-MM
         """
         user = request.user
 
-        # Получаем уникальные периоды из KpiValue для текущего пользователя
-        periods = KpiValue.objects.filter(
-            user=user
-        ).values_list('period', flat=True).distinct().order_by('-period')
+        if user.is_staff:
+            # РУКОВОДИТЕЛЬ - все периоды в системе
+            periods = KpiValue.objects.filter(
+                status=KpiValue.STATUS_APPROVED  # Только одобренные
+            ).values_list('period', flat=True).distinct().order_by('-period')
+        else:
+            # СОТРУДНИК - только свои периоды
+            periods = KpiValue.objects.filter(
+                user=user
+            ).values_list('period', flat=True).distinct().order_by('-period')
 
         return Response(list(periods))
 
@@ -379,49 +395,46 @@ class GenerateReportView(APIView):
             )
 
 
-class CrossrefSyncView(APIView):
+class GenerateUserReportView(APIView):
     """
-    Синхронизация публикаций из Crossref API.
+    Generate KPI PDF report for a selected user (admin only).
 
-    POST /api/kpi/crossref/sync/
-
-    Body:
-    - orcid: ORCID идентификатор (необязательно, берется из профиля)
-    - year: год для синхронизации (необязательно, по умолчанию текущий)
-
-    Returns:
-    Статистика синхронизации
+    GET /api/kpi/reports/generate/<user_id>/?period=YYYY-MM
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
-    def post(self, request, *args, **kwargs):
-        user = request.user
-        orcid = request.data.get('orcid')
-        year = request.data.get('year')
+    def get(self, request, user_id, *args, **kwargs):
+        period = request.query_params.get('period')
 
-        # Если ORCID не передан, пытаемся взять из профиля
-        if not orcid:
-            if hasattr(user, 'profile') and user.profile.orcid:
-                orcid = user.profile.orcid
-            else:
-                return Response(
-                    {'error': 'ORCID не указан в профиле пользователя'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        if not period:
+            return Response(
+                {'error': 'Необходимо указать параметр period'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
-            integrator = CrossrefKpiIntegration()
-            result = integrator.sync_user_publications(user.id, orcid, year)
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Пользователь не найден'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-            if result['success']:
-                return Response(result)
-            else:
-                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            generator = KpiReportGenerator()
+            pdf_buffer = generator.generate_report_response(target_user.id, period)
+
+            filename = f"KPI_Report_{target_user.username}_{period}.pdf"
+            response = HttpResponse(pdf_buffer, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
 
         except Exception as e:
-            logger.error(f"Ошибка синхронизации Crossref для {user.username}: {str(e)}")
+            logger.error(
+                f"Ошибка генерации отчета для пользователя {target_user.username}: {str(e)}"
+            )
             return Response(
-                {'error': 'Не удалось выполнить синхронизацию'},
+                {'error': 'Не удалось сгенерировать отчет'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -512,3 +525,5 @@ class TopPerformersView(APIView):
                 {'error': 'Не удалось загрузить данные'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+

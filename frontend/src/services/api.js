@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 
-// Базовый URL для API (измените на ваш production URL при деплое)
+// Базовый URL для API
 const BASE_URL = process.env.VUE_APP_API_URL || 'http://127.0.0.1:8000';
 
 // Создание экземпляра axios с базовой конфигурацией
@@ -11,19 +11,16 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000, // 15 секунд таймаут
+  timeout: 15000,
 });
 
 // Interceptor для добавления токена к каждому запросу
 apiClient.interceptors.request.use(
   (config) => {
-    // Получаем токен из localStorage
     const token = localStorage.getItem('access_token');
-    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
     return config;
   },
   (error) => {
@@ -39,12 +36,10 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
-    // Если получили 401 и это не повторный запрос
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       
       try {
-        // Пытаемся обновить токен
         const refreshToken = localStorage.getItem('refresh_token');
         
         if (refreshToken) {
@@ -53,20 +48,15 @@ apiClient.interceptors.response.use(
           });
           
           const { access } = response.data;
-          
-          // Сохраняем новый токен
           localStorage.setItem('access_token', access);
           
-          // Повторяем оригинальный запрос с новым токеном
           originalRequest.headers.Authorization = `Bearer ${access}`;
           return apiClient(originalRequest);
         }
       } catch (refreshError) {
-        // Если обновление токена не удалось, перенаправляем на логин
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         
-        // Перенаправление на страницу логина
         if (window.location.pathname !== '/login') {
           window.location.href = '/login';
         }
@@ -81,7 +71,6 @@ apiClient.interceptors.response.use(
 
 // API методы для работы с аутентификацией
 export const authAPI = {
-  // Вход в систему
   login(username, password) {
     return axios.post(`${BASE_URL}/api/token/`, {
       username,
@@ -89,14 +78,12 @@ export const authAPI = {
     });
   },
   
-  // Обновление токена
   refreshToken(refreshToken) {
     return axios.post(`${BASE_URL}/api/token/refresh/`, {
       refresh: refreshToken,
     });
   },
   
-  // Выход из системы (очистка токенов на клиенте)
   logout() {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
@@ -113,21 +100,18 @@ export const kpiAPI = {
     });
   },
   
-  // История KPI
   getHistory(months = 6) {
     return apiClient.get('/kpi/values/history/', {
       params: { months },
     });
   },
   
-  // Рекомендации
   getRecommendations(period) {
     return apiClient.get('/kpi/values/recommendations/', {
       params: { period },
     });
   },
   
-  // Доступные периоды
   getPeriods() {
     return apiClient.get('/kpi/values/periods/');
   },
@@ -142,7 +126,6 @@ export const kpiAPI = {
   },
   
   createValue(data) {
-    // Если есть файл, используем FormData
     if (data.evidence instanceof File) {
       const formData = new FormData();
       formData.append('indicator_id', data.indicator_id);
@@ -181,8 +164,10 @@ export const kpiAPI = {
     return apiClient.post(`/kpi/values/${id}/reject/`, { review_comment });
   },
 
-  getPendingValues() {
-    return apiClient.get('/kpi/values/pending/');
+  getPendingValues(period) {
+    return apiClient.get('/kpi/values/pending/', {
+      params: period ? { period } : {},
+    });
   },
   
   // === Справочники ===
@@ -203,11 +188,27 @@ export const kpiAPI = {
     return apiClient.post(`/kpi/recommendations-list/${id}/complete/`);
   },
   
+  // === Профиль пользователя ===
+  getProfile() {
+    return apiClient.get('/kpi/profile/');
+  },
+  
+  updateProfile(data) {
+    return apiClient.patch('/kpi/profile/', data);
+  },
+  
   // === Отчеты ===
   generateReport(period) {
     return apiClient.get('/kpi/reports/generate/', {
       params: { period },
-      responseType: 'blob', // Для скачивания файла
+      responseType: 'blob',
+    });
+  },
+
+  generateUserReport(userId, period) {
+    return apiClient.get(`/kpi/reports/generate/${userId}/`, {
+      params: { period },
+      responseType: 'blob',
     });
   },
   
@@ -242,5 +243,4 @@ export const downloadPDF = (blob, filename) => {
   window.URL.revokeObjectURL(url);
 };
 
-// Экспорт основного клиента
 export default apiClient;

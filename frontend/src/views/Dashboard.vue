@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="dashboard-container">
     <div class="header">
       <h1>Ваш персональный дашборд KPI</h1>
@@ -291,11 +291,12 @@ export default {
     async loadValues() {
       this.valuesLoading = true;
       try {
-        const response = await kpiAPI.getValues();
-        const allValues = Array.isArray(response.data) ? response.data : [];
-        this.values = allValues.filter(v => v.period === this.selectedPeriod);
+        const response = await kpiAPI.getValuesByParams({
+          period: this.selectedPeriod
+        });
+        this.values = Array.isArray(response.data) ? response.data : [];
       } catch (error) {
-        console.error('?????? ???????? ???????? KPI:', error);
+        console.error('Ошибка загрузки значений KPI:', error);
         this.values = [];
       } finally {
         this.valuesLoading = false;
@@ -304,11 +305,11 @@ export default {
     async submitValue(value) {
       try {
         await kpiAPI.submitValue(value.id);
-        this.$toast.success('?????????? ?? ????????');
+        this.$toast.success('Отправлено на проверку');
         await this.loadValues();
       } catch (error) {
-        console.error('?????? ???????? ?? ????????:', error);
-        this.$toast.error('?? ??????? ????????? ?? ????????');
+        console.error('Ошибка отправки на проверку:', error);
+        this.$toast.error('Не удалось отправить на проверку');
       }
     },
     canSubmit(value) {
@@ -316,10 +317,10 @@ export default {
     },
     formatStatus(status) {
       const map = {
-        draft: '????????',
-        submitted: '?? ????????',
-        approved: '????????????',
-        rejected: '?????????'
+        draft: 'Черновик',
+        submitted: 'На проверке',
+        approved: 'Подтверждено',
+        rejected: 'Отклонено'
       };
       return map[status] || status || '-';
     },
@@ -460,3 +461,4 @@ export default {
 .status-rejected { background: #f8d7da; color: #721c24; }
 .btn-sm { padding: 6px 10px; font-size: 0.85rem; }
 </style>
+
