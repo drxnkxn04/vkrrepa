@@ -217,6 +217,69 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             qs = qs.filter(period=period)
         return Response(KpiValueSerializer(qs, many=True, context={'request': request}).data)
 
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def bulk_approve(self, request):
+        """Массовое подтверждение KPI значений."""
+        ids = request.data.get('ids', [])
+        comment = request.data.get('review_comment', '')
+        if not ids:
+            raise ValidationError('Необходимо указать список id.')
+        qs = KpiValue.objects.filter(
+            id__in=ids, status=KpiValue.STATUS_SUBMITTED
+        ).select_related('indicator', 'user')
+        now = timezone.now()
+        reviewer_name = request.user.get_full_name() or request.user.username
+        count = 0
+        for obj in qs:
+            obj.status = KpiValue.STATUS_APPROVED
+            obj.is_verified = True
+            obj.reviewer = request.user
+            obj.reviewed_at = now
+            if comment:
+                obj.review_comment = comment
+            obj.save(update_fields=['status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'])
+            _create_notification(
+                recipient=obj.user,
+                notification_type=Notification.TYPE_APPROVED,
+                title='KPI одобрен',
+                message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} одобрен руководителем {reviewer_name}.',
+                kpi_value=obj,
+            )
+            count += 1
+        return Response({'approved': count})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def bulk_reject(self, request):
+        """Массовое отклонение KPI значений."""
+        ids = request.data.get('ids', [])
+        comment = request.data.get('review_comment', '')
+        if not ids:
+            raise ValidationError('Необходимо указать список id.')
+        qs = KpiValue.objects.filter(
+            id__in=ids, status=KpiValue.STATUS_SUBMITTED
+        ).select_related('indicator', 'user')
+        now = timezone.now()
+        reviewer_name = request.user.get_full_name() or request.user.username
+        count = 0
+        for obj in qs:
+            obj.status = KpiValue.STATUS_REJECTED
+            obj.is_verified = False
+            obj.reviewer = request.user
+            obj.reviewed_at = now
+            if comment:
+                obj.review_comment = comment
+            obj.save(update_fields=['status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'])
+            comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment else ''
+            _create_notification(
+                recipient=obj.user,
+                notification_type=Notification.TYPE_REJECTED,
+                title='KPI отклонён',
+                message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} отклонён руководителем {reviewer_name}.{comment_text}',
+                kpi_value=obj,
+            )
+            count += 1
+        return Response({'rejected': count})
+
     @action(detail=False, methods=['get'])
     def dashboard(self, request):
         """
@@ -619,6 +682,34 @@ class TopPerformersView(APIView):
                 {'error': 'Не удалось загрузить данные'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class TeamAverageView(APIView):
+    """
+    Средний балл KPI по команде за период.
+
+    GET /api/kpi/team-average/?period=YYYY-MM
+    Доступен всем авторизованным пользователям.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
+        calculator = KpiCalculator()
+        users = User.objects.filter(is_active=True, is_staff=False, is_superuser=False)
+        scores = []
+        for user in users:
+            try:
+                result = calculator.calculate_total_score(user.id, period)
+                scores.append(result['total_score'])
+            except Exception:
+                pass
+        avg = round(sum(scores) / len(scores), 1) if scores else 0.0
+        return Response({
+            'period': period,
+            'average_score': avg,
+            'user_count': len(scores),
+        })
 
 
 class NotificationViewSet(viewsets.ReadOnlyModelViewSet):

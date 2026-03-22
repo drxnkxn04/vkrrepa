@@ -50,6 +50,13 @@ urlpatterns = [
         name='kpi-groups'
     ),
 
+    # === Среднее по команде ===
+    path(
+        'team-average/',
+        views.TeamAverageView.as_view(),
+        name='team-average'
+    ),
+
     # === Дашборд руководителя ===
     path(
         'manager-dashboard/',

@@ -234,6 +234,19 @@ export const kpiAPI = {
     return apiClient.post('/kpi/crossref/sync/', data);
   },
   
+  // === Команда ===
+  getTeamAverage(period) {
+    return apiClient.get('/kpi/team-average/', { params: { period } });
+  },
+
+  bulkApprove(ids, review_comment = '') {
+    return apiClient.post('/kpi/values/bulk_approve/', { ids, review_comment });
+  },
+
+  bulkReject(ids, review_comment = '') {
+    return apiClient.post('/kpi/values/bulk_reject/', { ids, review_comment });
+  },
+
   // === Уведомления ===
   getNotifications() {
     return apiClient.get('/kpi/notifications/');

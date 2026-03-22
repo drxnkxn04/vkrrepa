@@ -51,6 +51,34 @@
       </div>
     </div>
 
+    <!-- Сравнение с командой -->
+    <div v-if="teamAverage !== null" class="team-compare-card">
+      <div class="tc-item">
+        <span class="tc-label">Мой балл</span>
+        <span class="tc-value" :class="scoreClass">{{ totalScore.toFixed(1) }}%</span>
+        <div class="tc-bar-wrap">
+          <div class="tc-bar">
+            <div class="tc-fill mine" :style="{ width: Math.min(totalScore, 100) + '%' }"></div>
+          </div>
+        </div>
+      </div>
+      <div class="tc-divider">
+        <span class="tc-diff" :class="diffClass">
+          {{ diffText }}
+        </span>
+      </div>
+      <div class="tc-item">
+        <span class="tc-label">Среднее по команде</span>
+        <span class="tc-value neutral">{{ teamAverage.toFixed(1) }}%</span>
+        <div class="tc-bar-wrap">
+          <div class="tc-bar">
+            <div class="tc-fill team" :style="{ width: Math.min(teamAverage, 100) + '%' }"></div>
+          </div>
+        </div>
+      </div>
+      <div class="tc-meta">{{ teamUserCount }} сотрудников · {{ selectedPeriod ? formatDate(selectedPeriod) : '' }}</div>
+    </div>
+
     <!-- Мои достижения за период -->
     <div class="values-section">
       <div class="section-header">
@@ -214,6 +242,8 @@ export default {
       valuesLoading: false,
       showModal: false,
       editingValue: null,
+      teamAverage: null,
+      teamUserCount: 0,
       chartData: {
         labels: [],
         datasets: [{
@@ -261,6 +291,20 @@ export default {
       if (diff > 0) return 'positive';
       if (diff < 0) return 'negative';
       return 'neutral';
+    },
+    diffText() {
+      if (this.teamAverage === null) return '';
+      const diff = this.totalScore - this.teamAverage;
+      if (diff > 0) return `↑ выше команды на ${diff.toFixed(1)}%`;
+      if (diff < 0) return `↓ ниже команды на ${Math.abs(diff).toFixed(1)}%`;
+      return '= наравне с командой';
+    },
+    diffClass() {
+      if (this.teamAverage === null) return 'neutral';
+      const diff = this.totalScore - this.teamAverage;
+      if (diff > 0) return 'positive';
+      if (diff < 0) return 'negative';
+      return 'neutral';
     }
   },
   async created() {
@@ -299,6 +343,7 @@ export default {
           this.loadRecommendations(),
           this.loadValues(),
           this.loadChartData(),
+          this.loadTeamAverage(),
         ]);
       } catch (error) {
         console.error('Ошибка загрузки данных дашборда:', error);
@@ -346,6 +391,15 @@ export default {
       } catch (error) {
         console.error('Ошибка отправки на проверку:', error);
         this.$toast.error('Не удалось отправить на проверку');
+      }
+    },
+    async loadTeamAverage() {
+      try {
+        const response = await kpiAPI.getTeamAverage(this.selectedPeriod);
+        this.teamAverage = response.data.average_score;
+        this.teamUserCount = response.data.user_count;
+      } catch {
+        this.teamAverage = null;
       }
     },
     canEdit(value) {
@@ -486,6 +540,36 @@ export default {
 .trend.positive { color: #28a745; }
 .trend.negative { color: #dc3545; }
 .trend.neutral { color: #6c757d; }
+
+/* Сравнение с командой */
+.team-compare-card {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+  padding: 20px 28px;
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.tc-item { flex: 1; }
+.tc-label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 4px; }
+.tc-value { font-size: 1.5rem; font-weight: 700; }
+.tc-value.excellent { color: #28a745; }
+.tc-value.good { color: #ffc107; }
+.tc-value.needs-improvement { color: #dc3545; }
+.tc-value.neutral { color: #495057; }
+.tc-bar-wrap { margin-top: 6px; }
+.tc-bar { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+.tc-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+.tc-fill.mine { background: #1a73e8; }
+.tc-fill.team { background: #6c757d; }
+.tc-divider { text-align: center; flex-shrink: 0; }
+.tc-diff { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+.tc-diff.positive { color: #28a745; }
+.tc-diff.negative { color: #dc3545; }
+.tc-diff.neutral { color: #6c757d; }
+.tc-meta { font-size: 0.75rem; color: #aaa; margin-top: 6px; }
 
 /* Мои достижения */
 .values-section { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 28px; }

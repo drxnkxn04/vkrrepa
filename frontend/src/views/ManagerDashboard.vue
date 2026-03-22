@@ -193,12 +193,44 @@
 
       <!-- Блок на проверке -->
       <div class="pending-card">
-        <h2>✋ На проверке</h2>
+        <div class="pending-header">
+          <h2>✋ На проверке</h2>
+          <span v-if="pendingValues.length > 0" class="pending-count">{{ pendingValues.length }} записей</span>
+        </div>
+
+        <!-- Панель массового действия -->
+        <transition name="bulk-bar">
+          <div v-if="selectedIds.length > 0" class="bulk-action-bar">
+            <span class="bulk-count">Выбрано: <b>{{ selectedIds.length }}</b></span>
+            <input
+              class="bulk-comment-input"
+              type="text"
+              v-model="bulkComment"
+              placeholder="Комментарий для всех (необязательно)"
+            />
+            <button class="btn btn-sm btn-approve" @click="bulkApprove">
+              ✓ Подтвердить ({{ selectedIds.length }})
+            </button>
+            <button class="btn btn-sm btn-reject" @click="bulkReject">
+              ✗ Отклонить ({{ selectedIds.length }})
+            </button>
+            <button class="btn btn-sm btn-outline-cancel" @click="selectedIds = []">Отмена</button>
+          </div>
+        </transition>
+
         <div v-if="pendingLoading" class="pending-loading">Загрузка...</div>
         <div v-else-if="pendingValues.length > 0" class="table-responsive">
           <table class="pending-table">
             <thead>
               <tr>
+                <th class="cb-col">
+                  <input
+                    type="checkbox"
+                    :checked="selectedIds.length === pendingValues.length && pendingValues.length > 0"
+                    :indeterminate.prop="selectedIds.length > 0 && selectedIds.length < pendingValues.length"
+                    @change="toggleSelectAll"
+                  />
+                </th>
                 <th>Сотрудник</th>
                 <th>Показатель</th>
                 <th>Период</th>
@@ -211,7 +243,18 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="value in pendingValues" :key="value.id">
+              <tr
+                v-for="value in pendingValues"
+                :key="value.id"
+                :class="{ 'row-selected': selectedIds.includes(value.id) }"
+              >
+                <td class="cb-col">
+                  <input
+                    type="checkbox"
+                    :value="value.id"
+                    v-model="selectedIds"
+                  />
+                </td>
                 <td>{{ value.user?.full_name || value.user?.username || '—' }}</td>
                 <td>{{ value.indicator?.name || '—' }}</td>
                 <td>{{ formatPeriod(value.period) }}</td>
@@ -239,8 +282,8 @@
                   />
                 </td>
                 <td>
-                  <button class="btn btn-sm btn-approve" @click="approveValue(value)">✓ Подтвердить</button>
-                  <button class="btn btn-sm btn-reject" @click="rejectValue(value)">✗ Отклонить</button>
+                  <button class="btn btn-sm btn-approve" @click="approveValue(value)">✓</button>
+                  <button class="btn btn-sm btn-reject" @click="rejectValue(value)">✗</button>
                 </td>
               </tr>
             </tbody>
@@ -368,6 +411,8 @@ export default {
       pendingValues: [],
       pendingLoading: false,
       reviewComments: {},
+      selectedIds: [],
+      bulkComment: '',
       showUserDetails: false,
       selectedUser: null,
       selectedUserValues: [],
@@ -494,6 +539,39 @@ export default {
         this.pendingValues = [];
       } finally {
         this.pendingLoading = false;
+      }
+    },
+    toggleSelectAll(e) {
+      if (e.target.checked) {
+        this.selectedIds = this.pendingValues.map(v => v.id);
+      } else {
+        this.selectedIds = [];
+      }
+    },
+    async bulkApprove() {
+      if (!this.selectedIds.length) return;
+      try {
+        const res = await kpiAPI.bulkApprove(this.selectedIds, this.bulkComment);
+        this.$toast.success(`Подтверждено: ${res.data.approved}`);
+        this.selectedIds = [];
+        this.bulkComment = '';
+        await this.loadData();
+      } catch (error) {
+        console.error('Ошибка массового подтверждения:', error);
+        this.$toast.error('Не удалось подтвердить');
+      }
+    },
+    async bulkReject() {
+      if (!this.selectedIds.length) return;
+      try {
+        const res = await kpiAPI.bulkReject(this.selectedIds, this.bulkComment);
+        this.$toast.success(`Отклонено: ${res.data.rejected}`);
+        this.selectedIds = [];
+        this.bulkComment = '';
+        await this.loadData();
+      } catch (error) {
+        console.error('Ошибка массового отклонения:', error);
+        this.$toast.error('Не удалось отклонить');
       }
     },
     async approveValue(value) {
@@ -995,6 +1073,39 @@ export default {
 }
 
 /* Pending */
+.pending-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.pending-header h2 { margin: 0; }
+.pending-count { background: #e9ecef; color: #495057; font-size: 0.8rem; padding: 3px 10px; border-radius: 12px; font-weight: 600; }
+
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f0f7ff;
+  border: 1.5px solid #1a73e8;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.bulk-count { font-weight: 600; font-size: 0.9rem; color: #1a73e8; white-space: nowrap; }
+.bulk-comment-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 0.88rem;
+}
+.btn-outline-cancel { background: white; border: 1px solid #dee2e6; color: #6c757d; }
+.btn-outline-cancel:hover { background: #f8f9fa; }
+
+.bulk-bar-enter-active, .bulk-bar-leave-active { transition: all 0.2s ease; }
+.bulk-bar-enter-from, .bulk-bar-leave-to { opacity: 0; transform: translateY(-8px); }
+
+.cb-col { width: 36px; text-align: center; }
+.row-selected td { background: #f0f7ff !important; }
+
 .pending-loading, .pending-empty {
   color: #6c757d;
   text-align: center;
