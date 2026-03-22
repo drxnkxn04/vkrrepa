@@ -35,6 +35,11 @@ class CrossrefRateLimitError(CrossrefAPIError):
     pass
 
 
+class CrossrefValidationError(CrossrefAPIError):
+    """Исключение при ошибке валидации данных"""
+    pass
+
+
 class CrossrefAPIService:
     """
     Сервис для взаимодействия с Crossref API
