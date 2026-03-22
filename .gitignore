@@ -40,3 +40,4 @@ frontend/.env*
 .dockerignore
 Dockerfile
 docker-compose.yml
+.claude/

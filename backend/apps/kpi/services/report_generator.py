@@ -186,12 +186,21 @@ class KpiReportGenerator:
     def _summary_table(self, kpi_data):
         elements = [Paragraph('1. Сводная информация', self.styles['SectionHead'])]
 
+        total_points = kpi_data.get('total_points', 0)
+        max_points = kpi_data.get('max_points', 0)
+        points_str = f"{total_points:.0f} / {max_points:.0f}" if max_points > 0 else '—'
+        user_role = 'РОП' if kpi_data.get('user_role') == 'rop' else 'ППС'
+        bonus = kpi_data['bonus_amount']
+        bonus_str = f"+{bonus:,.0f} ₽" if bonus >= 0 else f"{bonus:,.0f} ₽"
+
         rows = [
             [Paragraph('<b>Показатель</b>', self.styles['Body']),
              Paragraph('<b>Значение</b>', self.styles['Body'])],
+            ['Роль', user_role],
             ['Итоговый балл KPI', f"{kpi_data['total_score']:.1f}%"],
+            ['Набрано баллов', points_str],
             ['Уровень эффективности', self._fmt_level(kpi_data['performance_level'])],
-            ['Премиальная выплата', f"{kpi_data['bonus_amount']:,.0f} ₽"],
+            ['Бонус к ставке', bonus_str],
         ]
 
         t = Table(rows, colWidths=[9*cm, 8*cm])
@@ -218,9 +227,12 @@ class KpiReportGenerator:
             g_color = _score_color(g_score)
 
             # Строка заголовка группы
+            g_points = group_data.get('points', 0)
+            g_max_pts = group_data.get('max_points', 0)
+            pts_label = f"  ({g_points:.0f}/{g_max_pts:.0f} б.)" if g_max_pts > 0 else ""
             group_header = Table(
                 [[Paragraph(f"<b>{group_data['name']}</b>", self.styles['BodyBold']),
-                  Paragraph(f"<font color='{g_color.hexval()}'><b>{g_score:.1f}%</b></font>",
+                  Paragraph(f"<font color='{g_color.hexval()}'><b>{g_score:.1f}%{pts_label}</b></font>",
                             self.styles['BodyBold'])]],
                 colWidths=[13*cm, 4*cm]
             )
@@ -408,11 +420,20 @@ class KpiReportGenerator:
         # Сводная таблица
         hdr_row(ws1, 4, ['Показатель', 'Значение', 'Комментарий'])
         score = kpi_data['total_score']
-        data_row(ws1, 5, ['Итоговый балл KPI', f"{score:.1f}%",
-                          'Отлично' if score>=90 else ('Хорошо' if score>=70 else 'Требует улучшения')])
-        data_row(ws1, 6, ['Уровень эффективности', self._fmt_level(kpi_data['performance_level']), ''],
+        total_pts = kpi_data.get('total_points', 0)
+        max_pts = kpi_data.get('max_points', 0)
+        user_role = 'РОП' if kpi_data.get('user_role') == 'rop' else 'ППС'
+        bonus = kpi_data['bonus_amount']
+        bonus_str = f"+{bonus:,.0f} ₽" if bonus >= 0 else f"{bonus:,.0f} ₽"
+
+        data_row(ws1, 5, ['Роль', user_role, ''])
+        data_row(ws1, 6, ['Итоговый балл KPI', f"{score:.1f}%",
+                          'Отлично' if score>=90 else ('Хорошо' if score>=70 else 'Требует улучшения')],
                  fill=gray_fill)
-        data_row(ws1, 7, ['Премиальная выплата', f"{kpi_data['bonus_amount']:,.0f} ₽", ''])
+        data_row(ws1, 7, ['Набрано баллов', f"{total_pts:.0f} / {max_pts:.0f}" if max_pts > 0 else '—', ''])
+        data_row(ws1, 8, ['Уровень эффективности', self._fmt_level(kpi_data['performance_level']), ''],
+                 fill=gray_fill)
+        data_row(ws1, 9, ['Бонус к ставке', bonus_str, ''])
 
         ws1.column_dimensions['A'].width = 30
         ws1.column_dimensions['B'].width = 22

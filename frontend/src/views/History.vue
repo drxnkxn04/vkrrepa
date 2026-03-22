@@ -182,18 +182,7 @@
         loading: false,
         chartData: {
           labels: [],
-          datasets: [
-            {
-              label: 'Общий балл KPI',
-              data: [],
-              borderColor: '#3498db',
-              backgroundColor: 'rgba(52, 152, 219, 0.1)',
-              tension: 0.4,
-              fill: true,
-              pointRadius: 5,
-              pointHoverRadius: 7
-            }
-          ]
+          datasets: [],
         },
         chartOptions: {
           responsive: true,
@@ -272,13 +261,25 @@
         return 'Без изменений';
       },
       categoryStats() {
-        // Здесь можно добавить логику расчета по категориям
-        // Пока возвращаем заглушку
-        return {
-          'Публикации': { average: 85.5 },
-          'Проекты': { average: 72.3 },
-          'Преподавание': { average: 90.1 }
-        };
+        // Собираем средние по группам из реальных данных истории
+        const groupTotals = {};
+        const groupCounts = {};
+
+        for (const item of this.history) {
+          if (!item.group_scores) continue;
+          for (const [name, score] of Object.entries(item.group_scores)) {
+            if (score > 0) {
+              groupTotals[name] = (groupTotals[name] || 0) + score;
+              groupCounts[name] = (groupCounts[name] || 0) + 1;
+            }
+          }
+        }
+
+        const stats = {};
+        for (const name of Object.keys(groupTotals)) {
+          stats[name] = { average: groupTotals[name] / groupCounts[name] };
+        }
+        return stats;
       }
     },
     async created() {
@@ -289,8 +290,11 @@
         this.loading = true;
         try {
           const response = await kpiAPI.getHistory(this.selectedMonths);
-          this.history = response.data.reverse(); // От новых к старым
-          this.updateChart();
+          // Бэкенд возвращает от старых к новым
+          const oldToNew = Array.isArray(response.data) ? response.data : [];
+          // Для таблицы — от новых к старым
+          this.history = [...oldToNew].reverse();
+          this.updateChart(oldToNew);
         } catch (error) {
           console.error('Ошибка загрузки истории:', error);
           this.$toast.error('Не удалось загрузить историю KPI');
@@ -298,10 +302,20 @@
           this.loading = false;
         }
       },
-      updateChart() {
-        const reversed = [...this.history].reverse(); // От старых к новым для графика
-        this.chartData.labels = reversed.map(item => this.formatPeriod(item.period));
-        this.chartData.datasets[0].data = reversed.map(item => item.total_score);
+      updateChart(oldToNew) {
+        this.chartData = {
+          labels: oldToNew.map(item => this.formatPeriod(item.period)),
+          datasets: [{
+            label: 'Общий балл KPI',
+            data: oldToNew.map(item => item.total_score),
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+            tension: 0.4,
+            fill: true,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+          }],
+        };
       },
       formatPeriod(period) {
         const [year, month] = period.split('-');
@@ -355,9 +369,28 @@
           this.$toast.error('Не удалось сгенерировать отчет');
         }
       },
-      exportToExcel() {
-        // Заглушка для экспорта в Excel
-        this.$toast.info('Функция экспорта в Excel в разработке');
+      async exportToExcel() {
+        if (this.history.length === 0) {
+          this.$toast.info('Нет данных для экспорта');
+          return;
+        }
+        try {
+          // Используем последний период из истории
+          const period = this.history[0].period;
+          const response = await kpiAPI.generateExcelReport(period);
+          const url = window.URL.createObjectURL(response.data);
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', `KPI_History_${period}.xlsx`);
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.URL.revokeObjectURL(url);
+          this.$toast.success('Отчёт загружен');
+        } catch (error) {
+          console.error('Ошибка экспорта:', error);
+          this.$toast.error('Не удалось экспортировать отчёт');
+        }
       }
     }
   };

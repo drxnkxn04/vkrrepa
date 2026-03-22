@@ -8,7 +8,8 @@ from apps.kpi.api.profile_views import UserProfileView
 
 from apps.kpi.api.crossref_views import (
     CrossrefSyncView, CrossrefSearchByDoiView,
-    CrossrefSearchView, CrossrefHealthCheckView
+    CrossrefSearchView, CrossrefSaveToKpiView,
+    CrossrefHealthCheckView,
 )
 
 
@@ -110,6 +111,11 @@ urlpatterns = [
         'crossref/search/',
         CrossrefSearchView.as_view(),
         name='crossref-search'
+    ),
+    path(
+        'crossref/save-to-kpi/',
+        CrossrefSaveToKpiView.as_view(),
+        name='crossref-save-to-kpi'
     ),
     path(
         'crossref/health/',

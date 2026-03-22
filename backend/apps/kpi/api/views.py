@@ -398,9 +398,20 @@ class ManualKpiIndicatorListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return KpiIndicator.objects.filter(
+        qs = KpiIndicator.objects.filter(
             data_source='manual'
-        ).select_related('group').order_by('group__order', 'order')
+        ).select_related('group')
+
+        # Фильтрация по роли пользователя
+        user = self.request.user
+        profile = getattr(user, 'profile', None)
+        if profile and profile.role:
+            user_role = profile.role
+        else:
+            user_role = 'rop' if user.is_staff else 'pps'
+
+        qs = qs.filter(group__role=user_role)
+        return qs.order_by('group__order', 'order')
 
 
 class ManagerDashboardView(APIView):
@@ -434,8 +445,11 @@ class ManagerDashboardView(APIView):
                     'full_name': user.get_full_name() or user.username,
                     'email': user.email,
                     'total_score': user_kpi['total_score'],
+                    'total_points': user_kpi.get('total_points', 0),
+                    'max_points': user_kpi.get('max_points', 0),
                     'performance_level': user_kpi['performance_level'],
-                    'bonus_amount': user_kpi['bonus_amount']
+                    'bonus_amount': user_kpi['bonus_amount'],
+                    'user_role': user_kpi.get('user_role', 'pps'),
                 })
 
             # Сортировка по баллу (лучшие сверху)
@@ -598,55 +612,93 @@ class GenerateUserExcelReportView(APIView):
 
 class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    ViewSet для работы с рекомендациями (только чтение).
+    ViewSet для работы с рекомендациями.
 
     Endpoints:
-    - GET /api/kpi/recommendations-list/ - список рекомендаций
+    - GET /api/kpi/recommendations-list/ - список рекомендаций (фильтр: ?status=active|completed|all, ?period=YYYY-MM)
     - GET /api/kpi/recommendations-list/{id}/ - конкретная рекомендация
     - POST /api/kpi/recommendations-list/{id}/complete/ - отметить как выполненную
+    - POST /api/kpi/recommendations-list/{id}/uncomplete/ - вернуть в активные
     """
     serializer_class = KpiRecommendationSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return KpiRecommendation.objects.filter(
+        qs = KpiRecommendation.objects.filter(
             user=self.request.user,
-            is_completed=False
-        ).select_related('indicator', 'indicator__group').order_by('-created_at')
+        ).select_related('indicator', 'indicator__group')
+
+        # Фильтр по статусу
+        status_filter = self.request.query_params.get('status', 'all')
+        if status_filter == 'active':
+            qs = qs.filter(is_completed=False)
+        elif status_filter == 'completed':
+            qs = qs.filter(is_completed=True)
+
+        # Фильтр по периоду
+        period = self.request.query_params.get('period')
+        if period:
+            qs = qs.filter(period=period)
+
+        return qs.order_by('is_completed', 'priority', 'current_completion')
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
-        """
-        Отметить рекомендацию как выполненную.
-
-        POST /api/kpi/recommendations-list/{id}/complete/
-        """
+        """Отметить рекомендацию как выполненную."""
         try:
             recommendation = self.get_object()
             recommendation.is_completed = True
-            recommendation.save()
-
+            recommendation.save(update_fields=['is_completed', 'updated_at'])
             return Response({
                 'message': 'Рекомендация отмечена как выполненная',
-                'id': recommendation.id
+                'id': recommendation.id,
             })
         except Exception as e:
             logger.error(f"Ошибка отметки рекомендации: {str(e)}")
             return Response(
                 {'error': 'Не удалось обновить рекомендацию'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=['post'])
+    def uncomplete(self, request, pk=None):
+        """Вернуть рекомендацию в активные."""
+        try:
+            recommendation = self.get_object()
+            recommendation.is_completed = False
+            recommendation.save(update_fields=['is_completed', 'updated_at'])
+            return Response({
+                'message': 'Рекомендация возвращена в активные',
+                'id': recommendation.id,
+            })
+        except Exception as e:
+            logger.error(f"Ошибка отметки рекомендации: {str(e)}")
+            return Response(
+                {'error': 'Не удалось обновить рекомендацию'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 class KpiGroupListView(generics.ListAPIView):
     """
-    Список всех групп KPI с показателями.
+    Список групп KPI с показателями (фильтр по роли пользователя).
 
     GET /api/kpi/groups/
     """
     serializer_class = KpiGroupSerializer
     permission_classes = [IsAuthenticated]
-    queryset = KpiGroup.objects.all().prefetch_related('indicators').order_by('order')
+
+    def get_queryset(self):
+        user = self.request.user
+        profile = getattr(user, 'profile', None)
+        if profile and profile.role:
+            user_role = profile.role
+        else:
+            user_role = 'rop' if user.is_staff else 'pps'
+
+        return KpiGroup.objects.filter(
+            role=user_role
+        ).prefetch_related('indicators').order_by('order')
 
 
 class TopPerformersView(APIView):

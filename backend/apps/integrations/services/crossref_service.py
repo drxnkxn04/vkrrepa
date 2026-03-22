@@ -390,6 +390,23 @@ class CrossrefAPIService:
 
         return pub_type in valid_types
 
+    def health_check(self) -> Dict:
+        """
+        Проверка доступности Crossref API.
+        Выполняет простой запрос и возвращает статус.
+        """
+        try:
+            data = self._make_request({'rows': 0})
+            if data.get('status') == 'ok':
+                return {'status': 'ok'}
+            return {'status': 'error', 'message': 'Unexpected response from Crossref'}
+        except CrossrefTimeoutError:
+            return {'status': 'error', 'message': 'Crossref API timeout'}
+        except CrossrefConnectionError:
+            return {'status': 'error', 'message': 'Cannot connect to Crossref API'}
+        except CrossrefAPIError as e:
+            return {'status': 'error', 'message': str(e)}
+
     def _validate_orcid(self, orcid: str) -> bool:
         """
         Валидация формата ORCID

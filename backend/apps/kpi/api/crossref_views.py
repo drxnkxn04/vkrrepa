@@ -41,7 +41,8 @@ class CrossrefSyncView(APIView):
         user = request.user
         orcid = request.data.get('orcid')
         year = request.data.get('year')
-        save_to_kpi = request.data.get('save_to_kpi', True)
+        save_to_kpi = request.data.get('save_to_kpi', False)
+        selected_dois = request.data.get('selected_dois')
 
         if not orcid and hasattr(user, 'profile') and user.profile.orcid:
             orcid = user.profile.orcid
@@ -67,9 +68,16 @@ class CrossrefSyncView(APIView):
             errors = []
 
             if save_to_kpi and publications:
+                pubs_to_save = publications
+                if selected_dois:
+                    doi_set = {d.strip().upper() for d in selected_dois}
+                    pubs_to_save = [
+                        p for p in publications
+                        if (p.get('doi') or '').strip().upper() in doi_set
+                    ]
                 saved_count, skipped_count, errors = self._save_publications_to_kpi(
                     user=user,
-                    publications=publications,
+                    publications=pubs_to_save,
                 )
 
             return Response(
@@ -137,7 +145,7 @@ class CrossrefSyncView(APIView):
         skipped_count = 0
         errors = []
 
-        indicators = self._get_indicators()
+        indicators = self._get_indicators(user=user)
         if not any(indicators.values()):
             error = 'Publication KPI indicators are missing. Run init_kpi_structure.'
             logger.error(error)
@@ -232,33 +240,41 @@ class CrossrefSyncView(APIView):
         )
         return saved_count, skipped_count, errors
 
-    def _get_indicators(self):
-        indicators = {'q1q2': None, 'q3q4': None, 'conf': None}
+    def _get_indicators(self, user=None):
+        """Поиск показателей для публикаций с фильтрацией по роли."""
+        indicators = {'journal': None, 'conf': None}
 
-        indicators['q1q2'] = KpiIndicator.objects.filter(name__icontains='Q1-Q2').first()
-        if indicators['q1q2'] is None:
-            logger.warning('Indicator not found: Q1-Q2')
+        # Базовый queryset с фильтром по роли
+        base_qs = KpiIndicator.objects.filter(data_source='api')
+        if user:
+            profile = getattr(user, 'profile', None)
+            user_role = profile.role if profile and profile.role else ('rop' if user.is_staff else 'pps')
+            base_qs = base_qs.filter(group__role=user_role)
 
-        indicators['q3q4'] = KpiIndicator.objects.filter(name__icontains='Q3-Q4').first()
-        if indicators['q3q4'] is None:
-            logger.warning('Indicator not found: Q3-Q4')
+        # Журнальные публикации
+        indicators['journal'] = (
+            base_qs.filter(name__icontains='журнал').first()
+            or base_qs.filter(name__icontains='публикаци').first()
+            or base_qs.filter(name__icontains='Q1-Q2').first()
+            or base_qs.filter(name__icontains='Q3-Q4').first()
+        )
+        if indicators['journal'] is None:
+            logger.warning('Indicator not found: journal publications')
 
-        conference_ru = '\u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446'
+        # Конференции
         indicators['conf'] = (
-            KpiIndicator.objects.filter(name__icontains='conference').first()
-            or KpiIndicator.objects.filter(name__icontains=conference_ru).first()
+            base_qs.filter(name__icontains='CORE').first()
+            or base_qs.filter(name__icontains='\u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446').first()
+            or base_qs.filter(name__icontains='conference').first()
         )
         if indicators['conf'] is None:
             logger.warning('Indicator not found: conferences')
-
-        if indicators['q3q4'] is None and indicators['q1q2'] is not None:
-            logger.warning('Q3-Q4 indicator not found, fallback to Q1-Q2 for journal articles')
 
         return indicators
 
     def _select_indicator(self, pub_type, indicators):
         if pub_type == 'journal-article':
-            return indicators['q3q4'] or indicators['q1q2']
+            return indicators['journal']
         if pub_type == 'proceedings-article':
             return indicators['conf']
         return None
@@ -338,6 +354,37 @@ class CrossrefSearchView(APIView):
         except Exception as exc:
             logger.exception('Unexpected Crossref search error: %s', exc)
             return Response({'error': 'Internal server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CrossrefSaveToKpiView(APIView):
+    """
+    Save publications (from DOI/search) to KPI.
+
+    POST /api/kpi/crossref/save-to-kpi/
+    Body: { publications: [{doi, title, year, journal, type, authors, url}, ...] }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        publications = request.data.get('publications', [])
+        if not publications:
+            return Response(
+                {'success': False, 'error': 'No publications provided'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        sync_view = CrossrefSyncView()
+        saved_count, skipped_count, errors = sync_view._save_publications_to_kpi(
+            user=request.user,
+            publications=publications,
+        )
+
+        return Response({
+            'success': True,
+            'saved_to_kpi': saved_count,
+            'skipped': skipped_count,
+            'errors': errors,
+        })
 
 
 class CrossrefHealthCheckView(APIView):

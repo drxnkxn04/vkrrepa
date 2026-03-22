@@ -116,10 +116,11 @@
               <tr>
                 <th class="rank-col">#</th>
                 <th>Сотрудник</th>
-                <th>Email</th>
+                <th>Роль</th>
                 <th class="score-col">Балл KPI</th>
+                <th>Баллы</th>
                 <th>Уровень</th>
-                <th class="bonus-col">Премия</th>
+                <th class="bonus-col">Бонус</th>
                 <th class="actions-col">Действия</th>
               </tr>
             </thead>
@@ -141,7 +142,11 @@
                     </div>
                   </div>
                 </td>
-                <td class="email-col">{{ user.email }}</td>
+                <td>
+                  <span class="role-tag" :class="user.user_role || 'pps'">
+                    {{ user.user_role === 'rop' ? 'РОП' : 'ППС' }}
+                  </span>
+                </td>
                 <td class="score-col">
                   <div class="score-wrapper">
                     <div class="score-bar">
@@ -153,6 +158,10 @@
                     </div>
                     <span class="score-text">{{ user.total_score.toFixed(1) }}%</span>
                   </div>
+                </td>
+                <td class="points-col">
+                  <span v-if="user.max_points">{{ (user.total_points || 0).toFixed(0) }}/{{ (user.max_points || 0).toFixed(0) }}</span>
+                  <span v-else>—</span>
                 </td>
                 <td>
                   <span class="level-badge" :class="'level-' + user.performance_level">
@@ -356,25 +365,25 @@
       <div class="modal-card">
         <div class="modal-header">
           <h3>
-            KPI details:
-            {{ selectedUser?.full_name || selectedUser?.username || 'User' }}
+            Детали KPI:
+            {{ selectedUser?.full_name || selectedUser?.username || 'Сотрудник' }}
           </h3>
-          <button class="btn-icon" @click="closeUserDetails" title="Close">x</button>
+          <button class="btn-icon" @click="closeUserDetails" title="Закрыть">x</button>
         </div>
 
-        <div v-if="userDetailsLoading" class="pending-loading">Loading...</div>
+        <div v-if="userDetailsLoading" class="pending-loading">Загрузка...</div>
         <div v-else-if="selectedUserValues.length === 0" class="pending-empty">
-          No values for selected period.
+          Нет данных за выбранный период.
         </div>
         <div v-else class="table-responsive">
           <table class="pending-table">
             <thead>
               <tr>
-                <th>Indicator</th>
-                <th>Period</th>
-                <th>Actual</th>
-                <th>Target</th>
-                <th>Status</th>
+                <th>Показатель</th>
+                <th>Период</th>
+                <th>Факт</th>
+                <th>План</th>
+                <th>Статус</th>
               </tr>
             </thead>
             <tbody>

@@ -100,7 +100,7 @@ class KpiCalculatorTestCase(TestCase):
 
         self.assertEqual(result['total_score'], 0.0)
         self.assertEqual(result['performance_level'], 'низкий')
-        self.assertEqual(result['bonus_amount'], 0.0)
+        self.assertEqual(result['bonus_amount'], -25000.0)  # -50% при низком уровне
 
     def test_calculate_total_score_perfect(self):
         """Тест расчета KPI при 100% выполнении всех показателей."""
@@ -149,7 +149,7 @@ class KpiCalculatorTestCase(TestCase):
 
         self.assertEqual(result['total_score'], 100.0)
         self.assertEqual(result['performance_level'], 'высокий')
-        self.assertEqual(result['bonus_amount'], 25000.0)  # 50% от базовой ставки
+        self.assertEqual(result['bonus_amount'], 7500.0)  # +15% при высоком уровне
 
     def test_calculate_total_score_partial(self):
         """Тест расчета KPI при частичном выполнении."""
@@ -212,7 +212,7 @@ class KpiCalculatorTestCase(TestCase):
 
         self.assertAlmostEqual(result['total_score'], 75.0, places=1)
         self.assertEqual(result['performance_level'], 'средний')
-        self.assertEqual(result['bonus_amount'], 12500.0)  # 25% от базовой ставки
+        self.assertEqual(result['bonus_amount'], 0.0)  # 0% при среднем уровне
 
     def test_performance_level_boundaries(self):
         """Тест граничных значений для уровней эффективности."""
@@ -238,18 +238,18 @@ class KpiCalculatorTestCase(TestCase):
         self.assertEqual(level_low_very, 'низкий')
 
     def test_bonus_calculation(self):
-        """Тест расчета премии."""
-        # Высокий уровень - 50% премия
+        """Тест расчета премии (коэффициенты из Excel: +15%/-50%)."""
+        # Высокий уровень - +15% премия
         bonus_high = self.calculator._calculate_bonus(95.0)
-        self.assertEqual(bonus_high, 25000.0)
+        self.assertEqual(bonus_high, 7500.0)  # 50000 * 0.15
 
-        # Средний уровень - 25% премия
+        # Средний уровень - 0% (без изменений)
         bonus_medium = self.calculator._calculate_bonus(75.0)
-        self.assertEqual(bonus_medium, 12500.0)
+        self.assertEqual(bonus_medium, 0.0)  # 50000 * 0.00
 
-        # Низкий уровень - без премии
+        # Низкий уровень - -50% (штраф)
         bonus_low = self.calculator._calculate_bonus(50.0)
-        self.assertEqual(bonus_low, 0.0)
+        self.assertEqual(bonus_low, -25000.0)  # 50000 * -0.50
 
     def test_generate_recommendations_low_performance(self):
         """Тест генерации рекомендаций для показателей с низким выполнением."""

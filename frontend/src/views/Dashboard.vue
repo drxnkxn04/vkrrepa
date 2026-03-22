@@ -26,20 +26,32 @@
       </div>
     </div>
 
+    <!-- Предупреждения о порогах -->
+    <div v-if="thresholdWarnings.length > 0" class="threshold-warnings">
+      <div v-for="(warn, i) in thresholdWarnings" :key="i" class="threshold-warning">
+        <span class="warn-icon">&#9888;</span>
+        <span>{{ warn.group_name }}: набрано {{ warn.current_points }} из минимума {{ warn.min_threshold }} б. (дефицит {{ warn.deficit }} б.)</span>
+      </div>
+    </div>
+
     <!-- Сводные карточки -->
     <div class="summary-cards">
       <div class="card total-score">
         <h3>Общий балл KPI</h3>
         <div class="score-value" :class="scoreClass">
-          {{ totalScore.toFixed(1) }}
+          {{ totalScore.toFixed(1) }}%
+        </div>
+        <div v-if="maxPoints > 0" class="points-info">
+          {{ totalPoints.toFixed(0) }} / {{ maxPoints.toFixed(0) }} баллов
         </div>
         <div class="performance-level">
           <span :class="['badge', performanceLevelClass]">
             {{ performanceLevelText }}
           </span>
+          <span v-if="userRole" class="badge role-badge">{{ userRole === 'rop' ? 'РОП' : 'ППС' }}</span>
         </div>
         <div class="bonus-info">
-          <p>Потенциальная премия: <strong>{{ formatCurrency(bonusAmount) }}</strong></p>
+          <p>Бонус к ставке: <strong :class="bonusAmount >= 0 ? 'bonus-positive' : 'bonus-negative'">{{ bonusAmount >= 0 ? '+' : '' }}{{ formatCurrency(bonusAmount) }}</strong></p>
           <p class="trend" :class="trendClass">{{ trendText }}</p>
         </div>
       </div>
@@ -163,6 +175,7 @@
             </div>
             <div class="group-card-score">
               <span class="score-num" :class="getProgressClass(group.score)">{{ group.score.toFixed(0) }}%</span>
+              <span v-if="group.max_points" class="group-points">{{ (group.points || 0).toFixed(0) }}/{{ group.max_points.toFixed(0) }} б.</span>
               <span class="toggle-btn">{{ expandedGroups[index] ? '▲' : '▼' }}</span>
             </div>
           </div>
@@ -193,18 +206,35 @@
     </div>
 
     <!-- Рекомендации -->
-    <div class="recommendations" v-if="recommendations.length > 0">
-      <h2>Рекомендации по улучшению</h2>
-      <div v-for="(rec, index) in recommendations" :key="index" class="recommendation-card">
+    <div class="recommendations" v-if="activeRecommendations.length > 0">
+      <div class="rec-section-header">
+        <h2>Рекомендации по улучшению</h2>
+        <router-link to="/recommendations" class="rec-link">Все рекомендации &rarr;</router-link>
+      </div>
+      <div v-for="rec in activeRecommendations" :key="rec.id" class="recommendation-card" :class="`rec-priority-${rec.priority}`">
         <div class="rec-header">
-          <h3>{{ rec.indicator_name }}</h3>
-          <span class="badge warning">Требует внимания</span>
+          <div class="rec-header-left">
+            <span class="rec-priority-tag" :class="rec.priority">
+              {{ rec.priority === 'high' ? 'Высокий' : rec.priority === 'medium' ? 'Средний' : 'Низкий' }}
+            </span>
+            <h3>{{ rec.indicator_name }}</h3>
+          </div>
+          <span class="rec-completion" :class="rec.current_completion < 30 ? 'crit' : rec.current_completion < 60 ? 'warn' : 'ok'">
+            {{ rec.current_completion.toFixed(0) }}%
+          </span>
         </div>
-        <p>{{ rec.text }}</p>
+        <div class="rec-progress-bar">
+          <div
+            class="rec-progress-fill"
+            :class="rec.current_completion < 30 ? 'crit' : rec.current_completion < 60 ? 'warn' : 'ok'"
+            :style="{ width: Math.min(rec.current_completion, 100) + '%' }"
+          ></div>
+        </div>
+        <p class="rec-text">{{ rec.text }}</p>
         <div class="rec-footer">
-          <span class="target">Цель до {{ rec.deadline_period }}: {{ rec.target_value }}</span>
+          <span class="target">{{ rec.actual_value }} / {{ rec.target_value }} {{ rec.indicator_unit }} &middot; Срок: {{ rec.deadline_period }}</span>
           <button @click="markRecommendationDone(rec.id)" class="btn btn-sm btn-outline">
-            Отметить как выполненное
+            Выполнено
           </button>
         </div>
       </div>
@@ -232,9 +262,13 @@ export default {
       selectedPeriod: '',
       availablePeriods: [],
       totalScore: 0,
+      totalPoints: 0,
+      maxPoints: 0,
       previousScore: 0,
       performanceLevel: 'низкий',
       bonusAmount: 0,
+      userRole: 'pps',
+      thresholdWarnings: [],
       kpiGroups: [],
       expandedGroups: [],
       recommendations: [],
@@ -264,6 +298,9 @@ export default {
     };
   },
   computed: {
+    activeRecommendations() {
+      return (this.recommendations || []).filter(r => !r.is_completed).slice(0, 5);
+    },
     scoreClass() {
       if (this.totalScore >= 90) return 'excellent';
       if (this.totalScore >= 70) return 'good';
@@ -334,8 +371,12 @@ export default {
         const response = await kpiAPI.getDashboard(this.selectedPeriod);
         const data = response.data;
         this.totalScore = data.total_score;
+        this.totalPoints = data.total_points || 0;
+        this.maxPoints = data.max_points || 0;
         this.performanceLevel = data.performance_level;
         this.bonusAmount = data.bonus_amount;
+        this.userRole = data.user_role || 'pps';
+        this.thresholdWarnings = data.threshold_warnings || [];
         this.kpiGroups = Object.values(data.group_scores);
         this.expandedGroups = Array(this.kpiGroups.length).fill(false);
         await Promise.all([
@@ -520,6 +561,15 @@ export default {
 .btn-submit { background: #d4edda; color: #155724; border: 1px solid #28a745; }
 .btn-submit:hover { background: #b8dfc4; }
 
+/* Предупреждения о порогах */
+.threshold-warnings { margin-bottom: 16px; }
+.threshold-warning {
+  background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px;
+  padding: 10px 16px; margin-bottom: 8px; display: flex; align-items: center;
+  gap: 8px; font-size: 0.88rem; color: #856404;
+}
+.warn-icon { font-size: 1.1rem; }
+
 /* Сводные карточки */
 .summary-cards { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; margin-bottom: 28px; }
 .card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 24px; }
@@ -535,6 +585,11 @@ export default {
 .badge.level-средний { background: #fff3cd; color: #856404; }
 .badge.level-низкий { background: #f8d7da; color: #721c24; }
 .badge.warning { background: #fff3cd; color: #856404; }
+.points-info { font-size: 1rem; color: #6c757d; margin-bottom: 8px; font-weight: 600; }
+.role-badge { background: #e3f2fd; color: #1565c0; margin-left: 8px; }
+.bonus-positive { color: #28a745; }
+.bonus-negative { color: #dc3545; }
+.group-points { font-size: 0.75rem; color: #888; margin-left: 8px; }
 .bonus-info { margin-top: 12px; font-size: 0.9rem; color: #555; }
 .trend { font-size: 0.85rem; margin-top: 4px; }
 .trend.positive { color: #28a745; }
@@ -641,10 +696,31 @@ export default {
 
 /* Рекомендации */
 .recommendations { margin-bottom: 28px; }
-.recommendations h2 { font-size: 1.2rem; margin-bottom: 16px; }
-.recommendation-card { background: white; border-left: 4px solid #ffc107; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+.rec-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.rec-section-header h2 { font-size: 1.2rem; margin: 0; }
+.rec-link { color: #3b82f6; text-decoration: none; font-size: 0.9rem; font-weight: 500; }
+.rec-link:hover { text-decoration: underline; }
+.recommendation-card { background: white; border-left: 4px solid #d1d5db; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.recommendation-card.rec-priority-high { border-left-color: #dc2626; }
+.recommendation-card.rec-priority-medium { border-left-color: #d97706; }
+.recommendation-card.rec-priority-low { border-left-color: #059669; }
 .rec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.rec-header-left { display: flex; align-items: center; gap: 10px; }
 .rec-header h3 { margin: 0; font-size: 1rem; }
+.rec-priority-tag { padding: 2px 8px; border-radius: 8px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
+.rec-priority-tag.high { background: #fef2f2; color: #dc2626; }
+.rec-priority-tag.medium { background: #fffbeb; color: #d97706; }
+.rec-priority-tag.low { background: #ecfdf5; color: #059669; }
+.rec-completion { font-weight: 700; font-size: 1rem; }
+.rec-completion.crit { color: #dc2626; }
+.rec-completion.warn { color: #d97706; }
+.rec-completion.ok { color: #059669; }
+.rec-progress-bar { height: 6px; background: #f3f4f6; border-radius: 3px; overflow: hidden; margin-bottom: 10px; }
+.rec-progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.rec-progress-fill.crit { background: #dc2626; }
+.rec-progress-fill.warn { background: #d97706; }
+.rec-progress-fill.ok { background: #059669; }
+.rec-text { margin: 0 0 10px; color: #374151; line-height: 1.5; font-size: 0.9rem; }
 .rec-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
-.target { color: #6c757d; font-size: 0.9rem; }
+.target { color: #6b7280; font-size: 0.85rem; }
 </style>

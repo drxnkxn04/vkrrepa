@@ -183,12 +183,16 @@ export const kpiAPI = {
   },
   
   // === Рекомендации ===
-  getRecommendationsList() {
-    return apiClient.get('/kpi/recommendations-list/');
+  getRecommendationsList(params) {
+    return apiClient.get('/kpi/recommendations-list/', { params });
   },
-  
+
   completeRecommendation(id) {
     return apiClient.post(`/kpi/recommendations-list/${id}/complete/`);
+  },
+
+  uncompleteRecommendation(id) {
+    return apiClient.post(`/kpi/recommendations-list/${id}/uncomplete/`);
   },
   
   // === Профиль пользователя ===
@@ -232,6 +236,18 @@ export const kpiAPI = {
   // === Интеграции ===
   syncCrossref(data) {
     return apiClient.post('/kpi/crossref/sync/', data);
+  },
+
+  searchByDoi(doi) {
+    return apiClient.get('/kpi/crossref/search-by-doi/', { params: { doi } });
+  },
+
+  searchCrossref(query) {
+    return apiClient.get('/kpi/crossref/search/', { params: { query } });
+  },
+
+  savePublicationsToKpi(publications) {
+    return apiClient.post('/kpi/crossref/save-to-kpi/', { publications });
   },
   
   // === Команда ===

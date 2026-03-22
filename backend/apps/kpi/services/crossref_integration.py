@@ -89,7 +89,7 @@ class CrossrefKpiIntegration:
                 publications_by_year[year].append(pub)
 
         # Находим индикаторы для публикаций
-        publication_indicators = self._get_publication_indicators()
+        publication_indicators = self._get_publication_indicators(user=user)
 
         for year, year_publications in publications_by_year.items():
             # Формируем период в формате YYYY-MM (используем январь как базовый месяц года)
@@ -147,14 +147,20 @@ class CrossrefKpiIntegration:
 
         return {'kpi_updated': kpi_updated}
 
-    def _get_publication_indicators(self):
+    def _get_publication_indicators(self, user=None):
         """
         Получение списка индикаторов, связанных с публикациями.
+        Фильтрует по роли пользователя.
         """
-        return KpiIndicator.objects.filter(
+        qs = KpiIndicator.objects.filter(
             data_source='api',
             name__icontains='публикаци'
         )
+        if user:
+            profile = getattr(user, 'profile', None)
+            user_role = profile.role if profile and profile.role else ('rop' if user.is_staff else 'pps')
+            qs = qs.filter(group__role=user_role)
+        return qs
 
     def _update_or_create_kpi_value(
             self,

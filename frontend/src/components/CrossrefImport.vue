@@ -2,206 +2,234 @@
   <div class="crossref-import-container">
     <!-- Заголовок -->
     <div class="import-header">
-      <h2> Импорт публикаций из Crossref</h2>
+      <h2>Импорт публикаций из Crossref</h2>
       <p class="subtitle">
-        Автоматически загрузите ваши научные публикации по ORCID ID или DOI
+        Найдите публикации, выберите нужные и добавьте их в KPI
       </p>
     </div>
 
-    <!-- Вкладки выбора метода импорта -->
+    <!-- Вкладки -->
     <div class="import-tabs">
-      <button 
-        :class="['tab-button', { active: activeTab === 'orcid' }]"
-        @click="activeTab = 'orcid'"
+      <button
+        :class="['tab-btn', { active: activeTab === 'orcid' }]"
+        @click="switchTab('orcid')"
       >
-         По ORCID
+        По ORCID
       </button>
-      <button 
-        :class="['tab-button', { active: activeTab === 'doi' }]"
-        @click="activeTab = 'doi'"
+      <button
+        :class="['tab-btn', { active: activeTab === 'doi' }]"
+        @click="switchTab('doi')"
       >
-         По DOI
+        По DOI
       </button>
-      <button 
-        :class="['tab-button', { active: activeTab === 'search' }]"
-        @click="activeTab = 'search'"
+      <button
+        :class="['tab-btn', { active: activeTab === 'search' }]"
+        @click="switchTab('search')"
       >
-         Поиск
+        Поиск
       </button>
     </div>
 
-    <!-- Вкладка: Импорт по ORCID -->
+    <!-- Вкладка: ORCID -->
     <div v-if="activeTab === 'orcid'" class="tab-content">
-      <div class="form-group">
-        <label for="orcid-input">ORCID ID</label>
-        <input 
-          type="text" 
-          id="orcid-input"
-          v-model="orcidInput"
-          placeholder="0000-0000-0000-0000"
-          pattern="\d{4}-\d{4}-\d{4}-\d{3}[\dX]"
-          :disabled="loading"
-        />
-        <small>Формат: 0000-0000-0000-0000</small>
+      <div class="search-row">
+        <div class="form-group form-group-grow">
+          <label for="orcid-input">ORCID ID</label>
+          <input
+            type="text"
+            id="orcid-input"
+            v-model="orcidInput"
+            placeholder="0000-0000-0000-0000"
+            :disabled="loading"
+            @keyup.enter="findByOrcid"
+          />
+        </div>
+        <div class="form-group">
+          <label for="year-filter">Год</label>
+          <input
+            type="number"
+            id="year-filter"
+            v-model.number="yearFilter"
+            :min="1900"
+            :max="currentYear"
+            placeholder="Все"
+            :disabled="loading"
+            class="input-year"
+          />
+        </div>
+        <div class="form-group form-group-btn">
+          <label>&nbsp;</label>
+          <button
+            @click="findByOrcid"
+            class="btn btn-primary"
+            :disabled="loading || !isValidOrcid"
+          >
+            {{ loading ? 'Поиск...' : 'Найти' }}
+          </button>
+        </div>
       </div>
-
-      <div class="form-group">
-        <label for="year-filter">Год публикации (необязательно)</label>
-        <input 
-          type="number" 
-          id="year-filter"
-          v-model.number="yearFilter"
-          :min="1900"
-          :max="currentYear"
-          placeholder="Например: 2024"
-          :disabled="loading"
-        />
-      </div>
-
-      <button 
-        @click="importByOrcid" 
-        class="btn btn-primary btn-import"
-        :disabled="loading || !isValidOrcid"
-      >
-        <span v-if="!loading"> Импортировать публикации</span>
-        <span v-else>⏳ Загрузка...</span>
-      </button>
+      <small class="hint">Формат: 0000-0000-0000-0000. Последний символ может быть X.</small>
     </div>
 
-    <!-- Вкладка: Импорт по DOI -->
+    <!-- Вкладка: DOI -->
     <div v-if="activeTab === 'doi'" class="tab-content">
-      <div class="form-group">
-        <label for="doi-input">DOI публикации</label>
-        <input 
-          type="text" 
-          id="doi-input"
-          v-model="doiInput"
-          placeholder="10.1000/xyz123"
-          :disabled="loading"
-        />
-        <small>Например: 10.1038/nature12345</small>
-      </div>
-
-      <button 
-        @click="importByDoi" 
-        class="btn btn-primary btn-import"
-        :disabled="loading || !doiInput"
-      >
-        <span v-if="!loading"> Найти публикацию</span>
-        <span v-else>⏳ Поиск...</span>
-      </button>
-    </div>
-
-    <!-- Вкладка: Поиск -->
-    <div v-if="activeTab === 'search'" class="tab-content">
-      <div class="form-group">
-        <label for="search-input">Поисковый запрос</label>
-        <input 
-          type="text" 
-          id="search-input"
-          v-model="searchQuery"
-          placeholder="Название статьи, автор, ключевые слова..."
-          :disabled="loading"
-          @keyup.enter="searchPublications"
-        />
-      </div>
-
-      <button 
-        @click="searchPublications" 
-        class="btn btn-primary btn-import"
-        :disabled="loading || !searchQuery"
-      >
-        <span v-if="!loading"> Поиск</span>
-        <span v-else>⏳ Поиск...</span>
-      </button>
-    </div>
-
-    <!-- Ошибки -->
-    <div v-if="error" class="error-block">
-      <div class="error-icon">❌</div>
-      <div class="error-content">
-        <h4>Произошла ошибка</h4>
-        <p>{{ error }}</p>
-        <button @click="error = null" class="btn-dismiss">Закрыть</button>
-      </div>
-    </div>
-
-    <!-- Результаты импорта -->
-    <div v-if="publications.length > 0" class="results-section">
-      <div class="results-header">
-        <h3> Найдено публикаций: {{ publications.length }}</h3>
-        <div class="results-actions">
-        <div class="auto-save-badge">
-    <span class="badge-icon">✅</span>
-    <span>Автоматически добавлено в KPI</span>
-     </div>
-  </div>
-      </div>
-
-      <!-- Список публикаций -->
-      <div class="publications-list">
-        <div 
-          v-for="(pub, index) in publications" 
-          :key="pub.doi"
-          class="publication-card"
-          :class="{ selected: isSelected(pub) }"
-        >
-          <!-- Чекбокс выбора -->
-          <div class="publication-select">
-            <input 
-              type="checkbox" 
-              :id="`pub-${index}`"
-              :checked="isSelected(pub)"
-              @change="toggleSelection(pub)"
-            />
-          </div>
-
-          <!-- Контент публикации -->
-          <div class="publication-content">
-            <h4 class="publication-title">{{ pub.title }}</h4>
-            
-            <div class="publication-meta">
-              <span class="meta-item">
-                <strong>Журнал:</strong> {{ pub.journal || 'Не указан' }}
-              </span>
-              <span class="meta-item">
-                <strong>Год:</strong> {{ pub.year || 'Не указан' }}
-              </span>
-              <span class="meta-item">
-                <strong>Тип:</strong> {{ formatPublicationType(pub.type) }}
-              </span>
-            </div>
-
-            <div v-if="pub.authors && pub.authors.length > 0" class="publication-authors">
-              <strong>Авторы:</strong> {{ formatAuthors(pub.authors) }}
-            </div>
-
-            <div class="publication-links">
-              <a :href="pub.url" target="_blank" class="link-doi">
-                 DOI: {{ pub.doi }}
-              </a>
-            </div>
-          </div>
-
-          <!-- Статус добавления -->
-          <div v-if="addedPublications.includes(pub.doi)" class="publication-status">
-            <span class="status-badge success">✓ Добавлено</span>
-          </div>
+      <div class="search-row">
+        <div class="form-group form-group-grow">
+          <label for="doi-input">DOI</label>
+          <input
+            type="text"
+            id="doi-input"
+            v-model="doiInput"
+            placeholder="10.1038/nature12345"
+            :disabled="loading"
+            @keyup.enter="findByDoi"
+          />
+        </div>
+        <div class="form-group form-group-btn">
+          <label>&nbsp;</label>
+          <button
+            @click="findByDoi"
+            class="btn btn-primary"
+            :disabled="loading || !doiInput.trim()"
+          >
+            {{ loading ? 'Поиск...' : 'Найти' }}
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Пустое состояние -->
+    <!-- Вкладка: Поиск -->
+    <div v-if="activeTab === 'search'" class="tab-content">
+      <div class="search-row">
+        <div class="form-group form-group-grow">
+          <label for="search-input">Запрос</label>
+          <input
+            type="text"
+            id="search-input"
+            v-model="searchQuery"
+            placeholder="Название статьи, автор, ключевые слова..."
+            :disabled="loading"
+            @keyup.enter="findBySearch"
+          />
+        </div>
+        <div class="form-group form-group-btn">
+          <label>&nbsp;</label>
+          <button
+            @click="findBySearch"
+            class="btn btn-primary"
+            :disabled="loading || !searchQuery.trim()"
+          >
+            {{ loading ? 'Поиск...' : 'Найти' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ошибка -->
+    <div v-if="error" class="error-banner">
+      <span>{{ error }}</span>
+      <button @click="error = null" class="error-close">&times;</button>
+    </div>
+
+    <!-- Результаты -->
+    <div v-if="publications.length > 0" class="results-section">
+      <!-- Панель действий -->
+      <div class="results-toolbar">
+        <div class="toolbar-left">
+          <label class="select-all-label">
+            <input
+              type="checkbox"
+              :checked="allSelected"
+              :indeterminate.prop="someSelected && !allSelected"
+              @change="toggleSelectAll"
+            />
+            <span v-if="selectedCount > 0">
+              Выбрано: {{ selectedCount }} из {{ publications.length }}
+            </span>
+            <span v-else>Выбрать все</span>
+          </label>
+        </div>
+        <div class="toolbar-right">
+          <button
+            @click="addSelectedToKpi"
+            class="btn btn-success"
+            :disabled="saving || selectedCount === 0"
+          >
+            {{ saving ? 'Сохранение...' : `Добавить в KPI (${selectedCount})` }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Список публикаций -->
+      <div class="pub-list">
+        <div
+          v-for="pub in publications"
+          :key="pub.doi"
+          class="pub-card"
+          :class="{
+            selected: isSelected(pub),
+            added: isAdded(pub),
+          }"
+          @click="toggleSelection(pub)"
+        >
+          <div class="pub-checkbox">
+            <input
+              type="checkbox"
+              :checked="isSelected(pub)"
+              :disabled="isAdded(pub)"
+              @click.stop
+              @change="toggleSelection(pub)"
+            />
+          </div>
+
+          <div class="pub-body">
+            <div class="pub-title">{{ pub.title }}</div>
+            <div class="pub-meta">
+              <span v-if="pub.journal" class="meta-tag journal">{{ pub.journal }}</span>
+              <span v-if="pub.year" class="meta-tag year">{{ pub.year }}</span>
+              <span class="meta-tag type">{{ formatType(pub.type) }}</span>
+            </div>
+            <div v-if="pub.authors && pub.authors.length" class="pub-authors">
+              {{ formatAuthors(pub.authors) }}
+            </div>
+            <a
+              :href="`https://doi.org/${pub.doi}`"
+              target="_blank"
+              class="pub-doi"
+              @click.stop
+            >
+              DOI: {{ pub.doi }}
+            </a>
+          </div>
+
+          <div v-if="isAdded(pub)" class="pub-badge added-badge">
+            Добавлено
+          </div>
+        </div>
+      </div>
+
+      <!-- Нижняя панель -->
+      <div v-if="selectedCount > 0 && !allAdded" class="results-footer">
+        <button
+          @click="addSelectedToKpi"
+          class="btn btn-success btn-lg"
+          :disabled="saving"
+        >
+          {{ saving ? 'Сохранение...' : `Добавить выбранные в KPI (${selectedCount})` }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Пустой результат -->
     <div v-if="!loading && publications.length === 0 && hasSearched" class="empty-state">
-      <div class="empty-icon"></div>
       <p>Публикации не найдены</p>
       <small>Попробуйте изменить параметры поиска</small>
     </div>
 
-    <!-- Прогресс индикатор -->
-    <div v-if="loading" class="loading-overlay">
-      <div class="spinner-large"></div>
-      <p>{{ loadingMessage }}</p>
+    <!-- Загрузка -->
+    <div v-if="loading" class="loading-bar">
+      <div class="loading-spinner"></div>
+      <span>{{ loadingMessage }}</span>
     </div>
   </div>
 </template>
@@ -220,369 +248,337 @@ export default {
       searchQuery: '',
       yearFilter: null,
       publications: [],
-      selectedPublications: [],
-      addedPublications: [],
+      selectedDois: new Set(),
+      addedDois: new Set(),
       loading: false,
-      adding: false,
+      saving: false,
       error: null,
       hasSearched: false,
-      loadingMessage: 'Загрузка публикаций...',
-      currentYear: new Date().getFullYear()
+      loadingMessage: '',
+      currentYear: new Date().getFullYear(),
     };
   },
   computed: {
     isValidOrcid() {
-      const orcidPattern = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/;
-      return orcidPattern.test(this.orcidInput);
+      return /^\d{4}-\d{4}-\d{4}-\d{3}[\dXx]$/.test(this.orcidInput);
+    },
+    selectedCount() {
+      // Only count non-added publications
+      return [...this.selectedDois].filter(doi => !this.addedDois.has(doi)).length;
     },
     allSelected() {
-      return this.publications.length > 0 && 
-             this.selectedPublications.length === this.publications.length;
-    }
+      const selectable = this.publications.filter(p => !this.addedDois.has(p.doi));
+      return selectable.length > 0 && selectable.every(p => this.selectedDois.has(p.doi));
+    },
+    someSelected() {
+      return this.selectedCount > 0;
+    },
+    allAdded() {
+      return this.publications.length > 0 && this.publications.every(p => this.addedDois.has(p.doi));
+    },
   },
   methods: {
-    async importByOrcid() {
-  if (!this.isValidOrcid) {
-    this.error = 'Неверный формат ORCID. Ожидается: 0000-0000-0000-0000';
-    return;
-  }
-
-  this.loading = true;
-  this.error = null;
-  this.hasSearched = true;
-  this.loadingMessage = 'Загрузка и сохранение публикаций в KPI...';
-
-  try {
-    const response = await kpiAPI.syncCrossref({
-      orcid: this.orcidInput,
-      year: this.yearFilter,
-      save_to_kpi: true  // Автоматически сохраняем в KPI
-    });
-
-    if (response.data.success) {
-      this.publications = response.data.publications || [];
-      
-      // Извлекаем статистику сохранения
-      const saved = response.data.saved_to_kpi || 0;
-      const skipped = response.data.skipped || 0;
-      const errors = response.data.errors || [];
-      const total = this.publications.length;
-      
-      if (total === 0) {
-        this.$toast.info('Публикации не найдены за указанный период');
-      } else {
-        // Формируем детальное сообщение
-        let messages = [];
-        messages.push(` Найдено публикаций: ${total}`);
-        
-        if (saved > 0) {
-          messages.push(`✅ Добавлено в KPI: ${saved}`);
-        }
-        
-        if (skipped > 0) {
-          messages.push(`⏭️ Пропущено (уже добавлены ранее): ${skipped}`);
-        }
-        
-        if (errors.length > 0) {
-          messages.push(`⚠️ Ошибок: ${errors.length}`);
-          console.error('Ошибки импорта:', errors);
-        }
-        
-        // Показываем объединенное сообщение
-        const message = messages.join('\n');
-        
-        if (saved > 0 && errors.length === 0) {
-          this.$toast.success(message);
-        } else if (errors.length > 0) {
-          this.$toast.warning(message);
-        } else {
-          this.$toast.info(message);
-        }
-        
-        // Помечаем все публикации как уже добавленные
-        this.publications.forEach(pub => {
-          this.addedPublications.push(pub.doi);
-        });
-        
-        // Уведомляем родительский компонент об обновлении
-        if (saved > 0) {
-          this.$emit('publications-added', saved);
-        }
-      }
-    } else {
-      this.error = response.data.error || 'Не удалось загрузить публикации';
-    }
-  } catch (err) {
-    console.error('Ошибка импорта по ORCID:', err);
-    
-    if (err.response?.status === 429) {
-      this.error = 'Превышен лимит запросов к Crossref API. Пожалуйста, попробуйте через несколько минут.';
-    } else if (err.response?.status === 504) {
-      this.error = 'Превышено время ожидания ответа от Crossref. Попробуйте уменьшить диапазон поиска (указать конкретный год).';
-    } else if (err.response?.status === 503) {
-      this.error = 'Crossref API временно недоступен. Попробуйте позже.';
-    } else {
-      this.error = err.response?.data?.error || 'Не удалось загрузить публикации. Проверьте правильность ORCID.';
-    }
-  } finally {
-    this.loading = false;
-  }
-},
-
-    async importByDoi() {
-      if (!this.doiInput) {
-        this.error = 'Введите DOI публикации';
-        return;
-      }
-
-      this.loading = true;
+    switchTab(tab) {
+      this.activeTab = tab;
       this.error = null;
-      this.hasSearched = true;
-      this.loadingMessage = 'Поиск публикации по DOI...';
+    },
+
+    clearResults() {
+      this.publications = [];
+      this.selectedDois = new Set();
+      this.hasSearched = false;
+      this.error = null;
+    },
+
+    // --- Search methods ---
+
+    async findByOrcid() {
+      if (!this.isValidOrcid) return;
+
+      this.clearResults();
+      this.loading = true;
+      this.loadingMessage = 'Поиск публикаций в Crossref...';
 
       try {
-        // Используем эндпоинт для поиска по DOI
-        const response = await this.$api.get('/kpi/crossref/search-by-doi/', {
-          params: { doi: this.doiInput }
+        const response = await kpiAPI.syncCrossref({
+          orcid: this.orcidInput.toUpperCase(),
+          year: this.yearFilter,
+          save_to_kpi: false,
         });
+
+        this.hasSearched = true;
+
+        if (response.data.success) {
+          this.publications = response.data.publications || [];
+          if (this.publications.length === 0) {
+            this.$toast.info('Публикации не найдены');
+          }
+        } else {
+          this.error = response.data.error || 'Ошибка при поиске';
+        }
+      } catch (err) {
+        this.hasSearched = true;
+        this.error = this.parseError(err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async findByDoi() {
+      if (!this.doiInput.trim()) return;
+
+      this.clearResults();
+      this.loading = true;
+      this.loadingMessage = 'Поиск по DOI...';
+
+      try {
+        const response = await kpiAPI.searchByDoi(this.doiInput.trim());
+        this.hasSearched = true;
 
         if (response.data) {
           this.publications = [response.data];
-          this.$toast.success('Публикация найдена');
-        } else {
-          this.publications = [];
-          this.error = 'Публикация с таким DOI не найдена';
         }
       } catch (err) {
-        console.error('Ошибка поиска по DOI:', err);
-        this.error = 'Не удалось найти публикацию. Проверьте правильность DOI.';
-        this.publications = [];
+        this.hasSearched = true;
+        if (err.response?.status === 404) {
+          this.error = 'Публикация с таким DOI не найдена';
+        } else {
+          this.error = this.parseError(err);
+        }
       } finally {
         this.loading = false;
       }
     },
 
-    async searchPublications() {
-      if (!this.searchQuery) {
-        this.error = 'Введите поисковый запрос';
-        return;
-      }
+    async findBySearch() {
+      if (!this.searchQuery.trim()) return;
 
+      this.clearResults();
       this.loading = true;
-      this.error = null;
-      this.hasSearched = true;
       this.loadingMessage = 'Поиск публикаций...';
 
       try {
-        const response = await this.$api.get('/kpi/crossref/search/', {
-          params: { query: this.searchQuery }
-        });
-
+        const response = await kpiAPI.searchCrossref(this.searchQuery.trim());
+        this.hasSearched = true;
         this.publications = response.data.publications || [];
-        
+
         if (this.publications.length === 0) {
           this.$toast.info('Публикации не найдены');
-        } else {
-          this.$toast.success(`Найдено публикаций: ${this.publications.length}`);
         }
       } catch (err) {
-        console.error('Ошибка поиска:', err);
-        this.error = 'Не удалось выполнить поиск. Попробуйте другой запрос.';
-        this.publications = [];
+        this.hasSearched = true;
+        this.error = this.parseError(err);
       } finally {
         this.loading = false;
       }
     },
 
-    toggleSelection(publication) {
-      const index = this.selectedPublications.findIndex(p => p.doi === publication.doi);
-      
-      if (index > -1) {
-        this.selectedPublications.splice(index, 1);
+    // --- Selection ---
+
+    isSelected(pub) {
+      return this.selectedDois.has(pub.doi);
+    },
+
+    isAdded(pub) {
+      return this.addedDois.has(pub.doi);
+    },
+
+    toggleSelection(pub) {
+      if (this.addedDois.has(pub.doi)) return;
+
+      const next = new Set(this.selectedDois);
+      if (next.has(pub.doi)) {
+        next.delete(pub.doi);
       } else {
-        this.selectedPublications.push(publication);
+        next.add(pub.doi);
       }
+      this.selectedDois = next;
     },
 
-    isSelected(publication) {
-      return this.selectedPublications.some(p => p.doi === publication.doi);
-    },
+    toggleSelectAll() {
+      const selectable = this.publications.filter(p => !this.addedDois.has(p.doi));
+      const next = new Set(this.selectedDois);
 
-    selectAll() {
       if (this.allSelected) {
-        this.selectedPublications = [];
+        selectable.forEach(p => next.delete(p.doi));
       } else {
-        this.selectedPublications = [...this.publications];
+        selectable.forEach(p => next.add(p.doi));
       }
+      this.selectedDois = next;
     },
 
-    async addSelectedPublications() {
-      if (this.selectedPublications.length === 0) {
-        this.$toast.warning('Выберите публикации для добавления');
-        return;
-      }
+    // --- Save to KPI ---
 
-      this.adding = true;
-      let successCount = 0;
-      let errorCount = 0;
-      let duplicateCount = 0;
+    async addSelectedToKpi() {
+      const doisToSave = [...this.selectedDois].filter(doi => !this.addedDois.has(doi));
+      if (doisToSave.length === 0) return;
 
-      for (const pub of this.selectedPublications) {
-        try {
-          // Формируем данные для создания KpiValue
-          const kpiData = {
-            indicator_id: 1, // ID показателя "Публикации" - нужно получить динамически
-            period: `${pub.year}-01`,
-            actual_value: 1,
-            comment: `${pub.title}\nЖурнал: ${pub.journal}\nDOI: ${pub.doi}`,
-            // Можно добавить ссылку на DOI как подтверждение
-          };
+      const pubsToSave = this.publications.filter(p => doisToSave.includes(p.doi));
 
-          await kpiAPI.createValue(kpiData);
-          this.addedPublications.push(pub.doi);
-          successCount++;
-        } catch (error) {
-          console.error(`Ошибка добавления публикации ${pub.doi}:`, error);
-          
-          // Проверяем, является ли ошибка дубликатом
-          if (error.response?.status === 500 && 
-              error.response?.data?.toString().includes('UNIQUE constraint')) {
-            duplicateCount++;
-            // Помечаем как уже добавленную
-            this.addedPublications.push(pub.doi);
-          } else {
-            errorCount++;
-          }
-        }
-      }
+      this.saving = true;
+      this.error = null;
 
-      this.adding = false;
+      try {
+        let response;
 
-      // Формируем сообщения
-      const messages = [];
-      if (successCount > 0) {
-        messages.push(`Добавлено: ${successCount}`);
-      }
-      if (duplicateCount > 0) {
-        messages.push(`Пропущено (уже есть): ${duplicateCount}`);
-      }
-      if (errorCount > 0) {
-        messages.push(`Ошибок: ${errorCount}`);
-      }
-
-      if (messages.length > 0) {
-        if (successCount > 0) {
-          this.$toast.success(messages.join(', '));
-          this.$emit('publications-added', successCount);
-        } else if (duplicateCount > 0 && errorCount === 0) {
-          this.$toast.info(messages.join(', '));
+        if (this.activeTab === 'orcid') {
+          // For ORCID: use sync endpoint with selected_dois filter
+          response = await kpiAPI.syncCrossref({
+            orcid: this.orcidInput.toUpperCase(),
+            year: this.yearFilter,
+            save_to_kpi: true,
+            selected_dois: doisToSave,
+          });
         } else {
-          this.$toast.warning(messages.join(', '));
+          // For DOI/Search: pass publication data directly
+          response = await kpiAPI.savePublicationsToKpi(pubsToSave);
         }
+
+        const data = response.data;
+        const saved = data.saved_to_kpi || 0;
+        const skipped = data.skipped || 0;
+        const errors = data.errors || [];
+
+        // Mark as added
+        doisToSave.forEach(doi => this.addedDois.add(doi));
+        // Clear selection
+        this.selectedDois = new Set();
+
+        // Show result
+        const parts = [];
+        if (saved > 0) parts.push(`Добавлено: ${saved}`);
+        if (skipped > 0) parts.push(`Уже были: ${skipped}`);
+        if (errors.length > 0) parts.push(`Ошибок: ${errors.length}`);
+        const msg = parts.join(', ') || 'Нет новых публикаций для добавления';
+
+        if (saved > 0) {
+          this.$toast.success(msg);
+          this.$emit('publications-added', saved);
+        } else if (errors.length > 0) {
+          this.$toast.warning(msg);
+        } else {
+          this.$toast.info(msg);
+        }
+      } catch (err) {
+        this.error = this.parseError(err);
+      } finally {
+        this.saving = false;
       }
-      
-      // Очищаем выбранные
-      this.selectedPublications = [];
     },
 
-    formatPublicationType(type) {
-      const types = {
-        'journal-article': 'Статья в журнале',
-        'proceedings-article': 'Статья в трудах конференции',
+    // --- Helpers ---
+
+    parseError(err) {
+      if (err.response?.status === 429) return 'Превышен лимит запросов. Попробуйте через пару минут.';
+      if (err.response?.status === 503) return 'Crossref API временно недоступен.';
+      if (err.response?.status === 504) return 'Таймаут запроса. Попробуйте указать конкретный год.';
+      return err.response?.data?.error || 'Произошла ошибка. Попробуйте ещё раз.';
+    },
+
+    formatType(type) {
+      const map = {
+        'journal-article': 'Журнал',
+        'proceedings-article': 'Конференция',
         'posted-content': 'Препринт',
-        'book-chapter': 'Глава в книге'
+        'book-chapter': 'Глава книги',
       };
-      return types[type] || type;
+      return map[type] || type || '—';
     },
 
     formatAuthors(authors) {
-      if (authors.length <= 3) {
-        return authors.join(', ');
-      }
+      if (!authors || authors.length === 0) return '';
+      if (authors.length <= 3) return authors.join(', ');
       return `${authors.slice(0, 3).join(', ')} и др.`;
-    }
-  }
+    },
+  },
 };
 </script>
 
 <style scoped>
 .crossref-import-container {
-  max-width: 1200px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 20px;
 }
 
 .import-header {
-  text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .import-header h2 {
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   color: #2c3e50;
+  font-size: 1.4rem;
 }
 
 .subtitle {
   margin: 0;
   color: #7f8c8d;
-  font-size: 1rem;
 }
 
-/* Вкладки */
+/* Tabs */
 .import-tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 24px;
+  gap: 4px;
+  margin-bottom: 16px;
   border-bottom: 2px solid #e9ecef;
 }
 
-.tab-button {
-  padding: 12px 24px;
+.tab-btn {
+  padding: 10px 20px;
   border: none;
   background: none;
   cursor: pointer;
   font-weight: 500;
+  font-size: 0.95rem;
   color: #7f8c8d;
-  transition: all 0.2s;
   border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s;
 }
 
-.tab-button:hover {
-  color: #3498db;
-}
-
-.tab-button.active {
+.tab-btn:hover { color: #3498db; }
+.tab-btn.active {
   color: #3498db;
   border-bottom-color: #3498db;
 }
 
-/* Контент вкладок */
+/* Tab content */
 .tab-content {
   background: white;
   border-radius: 8px;
-  padding: 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 24px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  margin-bottom: 16px;
+}
+
+.search-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
 }
 
+.form-group-grow { flex: 1; }
+
 .form-group label {
-  display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-weight: 500;
+  font-size: 0.9rem;
   color: #2c3e50;
 }
 
 .form-group input {
-  width: 100%;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 14px;
   box-sizing: border-box;
+  transition: border-color 0.15s;
 }
 
 .form-group input:focus {
@@ -590,279 +586,265 @@ export default {
   border-color: #3498db;
 }
 
-.form-group small {
+.input-year { width: 100px; }
+
+.hint {
   display: block;
-  margin-top: 4px;
-  color: #7f8c8d;
-  font-size: 0.85rem;
+  margin-top: 8px;
+  color: #95a5a6;
+  font-size: 0.82rem;
 }
 
-.btn-import {
-  width: 100%;
-  padding: 12px;
-  font-size: 1rem;
-}
-
-/* Ошибки */
-.error-block {
-  background: #fee;
-  border: 1px solid #fcc;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 24px;
+/* Error */
+.error-banner {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  color: #b91c1c;
+  font-size: 0.9rem;
 }
 
-.error-icon {
-  font-size: 1.5rem;
-}
-
-.error-content {
-  flex: 1;
-}
-
-.error-content h4 {
-  margin: 0 0 8px 0;
-  color: #c0392b;
-}
-
-.error-content p {
-  margin: 0 0 12px 0;
-  color: #e74c3c;
-}
-
-.btn-dismiss {
-  padding: 4px 12px;
-  background: #e74c3c;
-  color: white;
+.error-close {
+  background: none;
   border: none;
-  border-radius: 4px;
+  font-size: 1.3rem;
   cursor: pointer;
-  font-size: 0.85rem;
+  color: #b91c1c;
+  padding: 0 4px;
 }
 
-/* Результаты */
+/* Results */
 .results-section {
   background: white;
   border-radius: 8px;
-  padding: 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  overflow: hidden;
 }
 
-.results-header {
+.results-toolbar {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 2px solid #e9ecef;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e9ecef;
+  background: #f8f9fa;
 }
 
-.results-header h3 {
-  margin: 0;
-  color: #2c3e50;
-}
-
-.results-actions {
-  display: flex;
-  gap: 12px;
-}
-
-/* Список публикаций */
-.publications-list {
-  display: grid;
-  gap: 16px;
-}
-
-.publication-card {
-  display: flex;
-  gap: 16px;
-  padding: 16px;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-
-.publication-card:hover {
-  border-color: #3498db;
-  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.1);
-}
-
-.publication-card.selected {
-  background: #ebf5fb;
-  border-color: #3498db;
-}
-
-.publication-select input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-}
-
-.publication-content {
-  flex: 1;
-}
-
-.publication-title {
-  margin: 0 0 12px 0;
-  color: #2c3e50;
-  font-size: 1.1rem;
-  line-height: 1.4;
-}
-
-.publication-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 12px;
-  font-size: 0.9rem;
-  color: #7f8c8d;
-}
-
-.meta-item strong {
-  color: #2c3e50;
-}
-
-.publication-authors {
-  margin-bottom: 12px;
-  font-size: 0.9rem;
-  color: #7f8c8d;
-}
-
-.publication-links {
-  display: flex;
-  gap: 12px;
-}
-
-.link-doi {
-  color: #3498db;
-  text-decoration: none;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-.link-doi:hover {
-  text-decoration: underline;
-}
-
-.publication-status {
+.toolbar-left {
   display: flex;
   align-items: center;
 }
 
-.status-badge {
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.status-badge.success {
-  background: #d4edda;
-  color: #155724;
-}
-
-/* Пустое состояние */
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: #7f8c8d;
-}
-
-.empty-icon {
-  font-size: 4rem;
-  margin-bottom: 16px;
-  opacity: 0.5;
-}
-
-/* Загрузка */
-.loading-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  color: white;
-}
-
-.spinner-large {
-  border: 6px solid #f3f3f3;
-  border-top: 6px solid #3498db;
-  border-radius: 50%;
-  width: 60px;
-  height: 60px;
-  animation: spin 1s linear infinite;
-  margin-bottom: 20px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* Кнопки */
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #3498db;
-  color: white;
-}
-
-.btn-success {
-  background: #27ae60;
-  color: white;
-}
-
-.btn-outline {
-  background: transparent;
-  border: 1px solid #95a5a6;
-  color: #95a5a6;
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 0.9rem;
-}
-
-.auto-save-badge {
+.select-all-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-  color: #155724;
-  border-radius: 8px;
-  font-weight: 600;
+  cursor: pointer;
   font-size: 0.9rem;
-  border: 2px solid #28a745;
-  box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2);
+  color: #495057;
+  user-select: none;
 }
 
-.badge-icon {
-  font-size: 1.2rem;
+.select-all-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* Publication list */
+.pub-list {
+  padding: 8px;
+}
+
+.pub-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border: 1px solid transparent;
+}
+
+.pub-card:hover {
+  background: #f8f9fa;
+}
+
+.pub-card.selected {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.pub-card.added {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pub-checkbox {
+  padding-top: 2px;
+}
+
+.pub-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.pub-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pub-title {
+  font-weight: 600;
+  color: #1a202c;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.pub-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.meta-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.meta-tag.journal {
+  background: #e8f4fd;
+  color: #1a73e8;
+}
+
+.meta-tag.year {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.meta-tag.type {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.pub-authors {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.pub-doi {
+  font-size: 0.82rem;
+  color: #3498db;
+  text-decoration: none;
+}
+
+.pub-doi:hover { text-decoration: underline; }
+
+.pub-badge {
+  padding: 4px 10px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.added-badge {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+/* Footer */
+.results-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Empty & loading */
+.empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: #9ca3af;
+}
+
+.empty-state p { margin: 0 0 4px; font-size: 1.05rem; }
+
+.loading-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  color: #6b7280;
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #3498db;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Buttons */
+.btn {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) { filter: brightness(0.95); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary { background: #3498db; color: white; }
+.btn-success { background: #10b981; color: white; }
+
+.btn-lg {
+  padding: 12px 28px;
+  font-size: 1rem;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .search-row {
+    flex-direction: column;
+  }
+
+  .input-year { width: 100%; }
+
+  .form-group-btn { align-self: stretch; }
+  .form-group-btn .btn { width: 100%; }
+
+  .results-toolbar {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .toolbar-right .btn { width: 100%; }
 }
 </style>

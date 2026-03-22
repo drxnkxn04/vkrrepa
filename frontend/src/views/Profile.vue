@@ -16,7 +16,7 @@
   
           <div class="profile-info">
             <h2>{{ currentUser?.full_name || currentUser?.username }}</h2>
-            <p class="user-role">{{ currentUser?.is_staff ? 'Руководитель' : 'Сотрудник' }}</p>
+            <p class="user-role">{{ profileForm.role === 'rop' ? 'РОП (руководитель)' : 'ППС (преподаватель)' }}</p>
             <p class="user-email">{{ currentUser?.email }}</p>
           </div>
         </div>
@@ -78,10 +78,19 @@
             </div>
   
             <div class="form-group">
+              <label for="role">Роль в системе KPI</label>
+              <select id="role" v-model="profileForm.role" class="form-select">
+                <option value="pps">ППС (преподаватель)</option>
+                <option value="rop">РОП (руководитель)</option>
+              </select>
+              <small>Определяет набор показателей KPI: ППС — 500 б., РОП — 700 б.</small>
+            </div>
+
+            <div class="form-group">
               <label for="department">Подразделение</label>
-              <input 
-                type="text" 
-                id="department" 
+              <input
+                type="text"
+                id="department"
                 v-model="profileForm.department"
                 placeholder="Название подразделения"
               />
@@ -231,6 +240,7 @@
           last_name: '',
           email: '',
           orcid: '',
+          role: 'pps',
           department: '',
           position: ''
         },
@@ -259,28 +269,46 @@
       this.loadProfile();
     },
     methods: {
-      loadProfile() {
-        // Загружаем данные из store
-        if (this.currentUser) {
-          this.profileForm.username = this.currentUser.username;
-          this.profileForm.first_name = this.currentUser.first_name || '';
-          this.profileForm.last_name = this.currentUser.last_name || '';
-          this.profileForm.email = this.currentUser.email || '';
-          // Остальные поля нужно загружать через API профиля
-          // this.profileForm.orcid = ...
-          // this.profileForm.department = ...
-          // this.profileForm.position = ...
+      async loadProfile() {
+        try {
+          const response = await kpiAPI.getProfile();
+          const data = response.data;
+          this.profileForm.username = data.username || '';
+          this.profileForm.first_name = data.first_name || '';
+          this.profileForm.last_name = data.last_name || '';
+          this.profileForm.email = data.email || '';
+          this.profileForm.orcid = data.orcid || '';
+          this.profileForm.role = data.role || 'pps';
+          this.profileForm.department = data.department || '';
+          this.profileForm.position = data.position || '';
+        } catch (error) {
+          console.error('Ошибка загрузки профиля:', error);
         }
       },
       async saveProfile() {
+        // Валидация ORCID на клиенте
+        if (this.profileForm.orcid) {
+          const orcidPattern = /^\d{4}-\d{4}-\d{4}-\d{3}[\dXx]$/;
+          if (!orcidPattern.test(this.profileForm.orcid)) {
+            this.$toast.error('Неверный формат ORCID. Ожидается: 0000-0000-0000-0000');
+            return;
+          }
+        }
+
         try {
-          // Здесь должен быть API запрос на сохранение профиля
-          // await api.updateProfile(this.profileForm);
-          
+          await kpiAPI.updateProfile({
+            first_name: this.profileForm.first_name,
+            last_name: this.profileForm.last_name,
+            email: this.profileForm.email,
+            orcid: this.profileForm.orcid,
+            role: this.profileForm.role,
+            department: this.profileForm.department,
+            position: this.profileForm.position,
+          });
           this.$toast.success('Профиль обновлен');
         } catch (error) {
-          console.error('Ошибка сохранения профиля:', error);
-          this.$toast.error('Не удалось сохранить профиль');
+          const msg = error.response?.data?.error || 'Не удалось сохранить профиль';
+          this.$toast.error(msg);
         }
       },
       resetForm() {
@@ -471,7 +499,8 @@
     color: #2c3e50;
   }
   
-  .form-group input {
+  .form-group input,
+  .form-group .form-select {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid #ddd;
@@ -479,6 +508,7 @@
     font-size: 14px;
     box-sizing: border-box;
     transition: border-color 0.2s;
+    background: white;
   }
   
   .form-group input:focus {
