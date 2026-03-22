@@ -1,4 +1,4 @@
-# backend/apps/kpi/report_generator.py
+# backend/apps/kpi/services/report_generator.py
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -6,10 +6,11 @@ from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, Image
+    PageBreak, HRFlowable,
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from io import BytesIO
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -22,390 +23,471 @@ from .kpi_calculator import KpiCalculator
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
+BLUE      = colors.HexColor('#1a73e8')
+DARK      = colors.HexColor('#1e2a38')
+GRAY_BG   = colors.HexColor('#f5f7fa')
+GRAY_LINE = colors.HexColor('#dee2e6')
+GREEN     = colors.HexColor('#28a745')
+YELLOW    = colors.HexColor('#ffc107')
+RED       = colors.HexColor('#dc3545')
+WHITE     = colors.white
+
+
+def _score_color(score: float):
+    if score >= 90: return GREEN
+    if score >= 70: return YELLOW
+    return RED
+
+
+def _load_fonts(base_dir):
+    """Регистрирует Arial с кириллицей, возвращает (regular, bold)."""
+    font_dir = os.path.join(base_dir, 'fonts')
+    reg  = os.path.join(font_dir, 'Arial.ttf')
+    bold = os.path.join(font_dir, 'Arial-Bold.ttf')
+    if os.path.exists(reg) and os.path.exists(bold):
+        try:
+            pdfmetrics.registerFont(TTFont('Arial', reg))
+            pdfmetrics.registerFont(TTFont('Arial-Bold', bold))
+            return 'Arial', 'Arial-Bold'
+        except Exception as e:
+            logger.warning(f'Не удалось загрузить Arial: {e}')
+    return 'Helvetica', 'Helvetica-Bold'
+
 
 class KpiReportGenerator:
-    """
-    Генератор PDF-отчетов по KPI для сотрудников.
-    """
+    """Генератор PDF и Excel отчётов по KPI."""
 
     def __init__(self):
         self.calculator = KpiCalculator()
-        self.styles = getSampleStyleSheet()
-
-        # Регистрация русского шрифта (если доступен)
-        try:
-            # Попытка использовать DejaVu для поддержки кириллицы
-            font_path = os.path.join(settings.BASE_DIR, 'fonts', 'DejaVuSans.ttf')
-            if os.path.exists(font_path):
-                pdfmetrics.registerFont(TTFont('DejaVu', font_path))
-                self.font_name = 'DejaVu'
-            else:
-                self.font_name = 'Helvetica'
-        except Exception as e:
-            logger.warning(f"Не удалось загрузить русский шрифт: {e}")
-            self.font_name = 'Helvetica'
-
-        # Создание пользовательских стилей
+        self.font, self.font_bold = _load_fonts(settings.BASE_DIR)
         self._setup_styles()
 
     def _setup_styles(self):
-        """Настройка стилей для документа."""
+        self.styles = getSampleStyleSheet()
+        F, FB = self.font, self.font_bold
 
-        # Заголовок
-        self.styles.add(ParagraphStyle(
-            name='CustomTitle',
-            parent=self.styles['Heading1'],
-            fontName=self.font_name,
-            fontSize=18,
-            textColor=colors.HexColor('#2C3E50'),
-            spaceAfter=30,
-            alignment=1  # Центрирование
-        ))
+        self.styles.add(ParagraphStyle('DocTitle',
+            fontName=FB, fontSize=20, textColor=WHITE,
+            alignment=TA_CENTER, spaceAfter=6))
+        self.styles.add(ParagraphStyle('DocSubtitle',
+            fontName=F, fontSize=11, textColor=colors.HexColor('#cfe2ff'),
+            alignment=TA_CENTER, spaceAfter=0))
+        self.styles.add(ParagraphStyle('SectionHead',
+            fontName=FB, fontSize=13, textColor=DARK,
+            spaceBefore=14, spaceAfter=8,
+            borderPad=0))
+        self.styles.add(ParagraphStyle('Body',
+            fontName=F, fontSize=10, textColor=colors.HexColor('#333333'),
+            spaceAfter=4, leading=14))
+        self.styles.add(ParagraphStyle('BodyBold',
+            fontName=FB, fontSize=10, textColor=DARK,
+            spaceAfter=4, leading=14))
+        self.styles.add(ParagraphStyle('Small',
+            fontName=F, fontSize=8.5, textColor=colors.HexColor('#6c757d'),
+            spaceAfter=2))
+        self.styles.add(ParagraphStyle('ScoreBig',
+            fontName=FB, fontSize=46, alignment=TA_CENTER, spaceAfter=0))
+        self.styles.add(ParagraphStyle('ScoreLabel',
+            fontName=F, fontSize=11, alignment=TA_CENTER,
+            textColor=colors.HexColor('#555555'), spaceAfter=4))
 
-        # Подзаголовок
-        self.styles.add(ParagraphStyle(
-            name='CustomHeading',
-            parent=self.styles['Heading2'],
-            fontName=self.font_name,
-            fontSize=14,
-            textColor=colors.HexColor('#34495E'),
-            spaceAfter=12,
-            spaceBefore=12
-        ))
-
-        # Обычный текст
-        self.styles.add(ParagraphStyle(
-            name='CustomBody',
-            parent=self.styles['BodyText'],
-            fontName=self.font_name,
-            fontSize=10,
-            spaceAfter=6
-        ))
-
-    def generate_user_report(self, user_id: int, period: str) -> str:
-        """
-        Генерация PDF-отчета для конкретного пользователя.
-
-        Args:
-            user_id: ID пользователя
-            period: Период в формате 'YYYY-MM'
-
-        Returns:
-            Путь к сгенерированному файлу
-        """
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            logger.error(f"Пользователь с ID {user_id} не найден")
-            raise
-
-        # Получаем данные для отчета
+    # ──────────────────────────────────────────────────────────────
+    # Публичный метод
+    # ──────────────────────────────────────────────────────────────
+    def generate_report_response(self, user_id: int, period: str) -> BytesIO:
+        user     = User.objects.get(id=user_id)
         kpi_data = self.calculator.calculate_dashboard(user_id, period)
-        recommendations = self.calculator.generate_recommendations(user_id, period)
-        history = self.calculator.get_user_kpi_history(user_id, months=6)
+        history  = self.calculator.get_user_kpi_history(user_id, months=6)
+        recs     = self.calculator.generate_recommendations(user_id, period)
 
-        # Создание пути для сохранения файла
-        report_dir = os.path.join(settings.MEDIA_ROOT, 'reports', str(user_id))
-        os.makedirs(report_dir, exist_ok=True)
-
-        filename = f"KPI_Report_{user.username}_{period}.pdf"
-        filepath = os.path.join(report_dir, filename)
-
-        # Создание PDF
+        buffer = BytesIO()
         doc = SimpleDocTemplate(
-            filepath,
-            pagesize=A4,
-            rightMargin=2 * cm,
-            leftMargin=2 * cm,
-            topMargin=2 * cm,
-            bottomMargin=2 * cm
+            buffer, pagesize=A4,
+            rightMargin=1.8*cm, leftMargin=1.8*cm,
+            topMargin=1.5*cm, bottomMargin=1.8*cm,
+            title=f'KPI Отчёт — {user.get_full_name() or user.username}',
         )
 
-        # Построение содержимого отчета
         story = []
+        story += self._header_banner(user, period, kpi_data)
+        story += self._summary_table(kpi_data)
+        story += self._groups_section(kpi_data)
+        story += self._history_section(history)
+        if recs:
+            story += self._recommendations_section(recs)
+        story += self._footer_note()
 
-        # Титульный лист
-        story.extend(self._build_title_page(user, period, kpi_data))
-
-        # Общая информация
-        story.extend(self._build_summary_section(kpi_data))
-
-        # Детальная информация по группам
-        story.extend(self._build_groups_section(kpi_data))
-
-        # История KPI
-        story.extend(self._build_history_section(history))
-
-        # Рекомендации
-        if recommendations:
-            story.extend(self._build_recommendations_section(recommendations))
-
-        # Сборка документа
         doc.build(story)
+        buffer.seek(0)
+        return buffer
 
-        logger.info(f"Отчет сгенерирован: {filepath}")
-
-        return filepath
-
-    def _build_title_page(self, user: User, period: str, kpi_data: dict) -> list:
-        """Построение титульного листа."""
-        elements = []
-
-        # Заголовок
-        title = Paragraph(
-            "ОТЧЕТ ПО КЛЮЧЕВЫМ ПОКАЗАТЕЛЯМ ЭФФЕКТИВНОСТИ",
-            self.styles['CustomTitle']
-        )
-        elements.append(title)
-        elements.append(Spacer(1, 1 * cm))
-
-        # Информация о сотруднике
-        user_info = f"""
-        <b>Сотрудник:</b> {user.get_full_name() or user.username}<br/>
-        <b>Период:</b> {self._format_period(period)}<br/>
-        <b>Дата формирования отчета:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}
-        """
-        elements.append(Paragraph(user_info, self.styles['CustomBody']))
-        elements.append(Spacer(1, 2 * cm))
-
-        # Общий балл (крупно)
+    # ──────────────────────────────────────────────────────────────
+    # Секции PDF
+    # ──────────────────────────────────────────────────────────────
+    def _header_banner(self, user, period, kpi_data):
         score = kpi_data['total_score']
         level = kpi_data['performance_level']
-
-        score_text = f"""
-        <para align=center>
-        <font size=48 color="{self._get_score_color(score)}"><b>{score:.1f}</b></font><br/>
-        <font size=14>Итоговый балл KPI</font><br/>
-        <font size=12 color="{self._get_level_color(level)}">
-        <b>{self._format_level(level)}</b>
-        </font>
-        </para>
-        """
-        elements.append(Paragraph(score_text, self.styles['CustomBody']))
-        elements.append(Spacer(1, 1 * cm))
-
-        # Премия
         bonus = kpi_data['bonus_amount']
-        bonus_text = f"""
-        <para align=center>
-        <font size=16><b>Премия: {bonus:,.0f} ₽</b></font>
-        </para>
-        """
-        elements.append(Paragraph(bonus_text, self.styles['CustomBody']))
 
-        elements.append(PageBreak())
+        # Синяя шапка через таблицу (растянута на всю ширину)
+        title_para   = Paragraph('ОТЧЁТ ПО KPI', self.styles['DocTitle'])
+        sub_para     = Paragraph(
+            f'{user.get_full_name() or user.username} &nbsp;·&nbsp; {self._fmt_period(period)} '
+            f'&nbsp;·&nbsp; Сформирован: {datetime.now().strftime("%d.%m.%Y")}',
+            self.styles['DocSubtitle']
+        )
+        header_table = Table([[title_para], [sub_para]], colWidths=[17*cm])
+        header_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), BLUE),
+            ('TOPPADDING', (0,0), (-1,-1), 18),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 18),
+            ('LEFTPADDING', (0,0), (-1,-1), 12),
+            ('RIGHTPADDING', (0,0), (-1,-1), 12),
+            ('ROUNDEDCORNERS', [6]),
+        ]))
 
-        return elements
+        # Три блока: балл | уровень | премия
+        score_color = _score_color(score)
+        score_para = Paragraph(f'<font color="{score_color.hexval()}">{score:.1f}</font>',
+                               self.styles['ScoreBig'])
+        score_lbl  = Paragraph('Балл KPI', self.styles['ScoreLabel'])
 
-    def _build_summary_section(self, kpi_data: dict) -> list:
-        """Построение секции общей информации."""
-        elements = []
+        level_text = self._fmt_level(level)
+        level_para = Paragraph(f'<b>{level_text}</b>', self.styles['BodyBold'])
+        level_lbl  = Paragraph('Уровень эффективности', self.styles['Small'])
 
-        heading = Paragraph("1. ОБЩАЯ ИНФОРМАЦИЯ", self.styles['CustomHeading'])
-        elements.append(heading)
-        elements.append(Spacer(1, 0.5 * cm))
+        bonus_para = Paragraph(f'<b>{bonus:,.0f} ₽</b>', self.styles['BodyBold'])
+        bonus_lbl  = Paragraph('Потенциальная премия', self.styles['Small'])
 
-        # Таблица с основными показателями
-        data = [
-            ['Показатель', 'Значение'],
+        kpi_cells = [
+            [score_para, level_para, bonus_para],
+            [score_lbl,  level_lbl,  bonus_lbl],
+        ]
+        kpi_table = Table(kpi_cells, colWidths=[5.5*cm, 6*cm, 5.5*cm])
+        kpi_table.setStyle(TableStyle([
+            ('ALIGN',        (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN',       (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING',   (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING',(0,0), (-1,-1), 4),
+            ('LINEAFTER',    (0,0), (1,-1), 1, GRAY_LINE),
+            ('BACKGROUND',   (0,0), (-1,-1), GRAY_BG),
+            ('ROUNDEDCORNERS', [4]),
+        ]))
+
+        return [
+            header_table,
+            Spacer(1, 0.5*cm),
+            kpi_table,
+            Spacer(1, 0.6*cm),
+            HRFlowable(width='100%', thickness=1, color=GRAY_LINE),
+            Spacer(1, 0.4*cm),
+        ]
+
+    def _summary_table(self, kpi_data):
+        elements = [Paragraph('1. Сводная информация', self.styles['SectionHead'])]
+
+        rows = [
+            [Paragraph('<b>Показатель</b>', self.styles['Body']),
+             Paragraph('<b>Значение</b>', self.styles['Body'])],
             ['Итоговый балл KPI', f"{kpi_data['total_score']:.1f}%"],
-            ['Уровень эффективности', self._format_level(kpi_data['performance_level'])],
+            ['Уровень эффективности', self._fmt_level(kpi_data['performance_level'])],
             ['Премиальная выплата', f"{kpi_data['bonus_amount']:,.0f} ₽"],
         ]
 
-        table = Table(data, colWidths=[10 * cm, 6 * cm])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495E')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), self.font_name),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        t = Table(rows, colWidths=[9*cm, 8*cm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0), DARK),
+            ('TEXTCOLOR',     (0,0), (-1,0), WHITE),
+            ('FONTNAME',      (0,0), (-1,0), self.font_bold),
+            ('FONTNAME',      (0,1), (-1,-1), self.font),
+            ('FONTSIZE',      (0,0), (-1,-1), 10),
+            ('ALIGN',         (1,0), (1,-1), 'CENTER'),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, GRAY_BG]),
+            ('GRID',          (0,0), (-1,-1), 0.5, GRAY_LINE),
+            ('TOPPADDING',    (0,0), (-1,-1), 7),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 7),
         ]))
-
-        elements.append(table)
-        elements.append(Spacer(1, 1 * cm))
-
+        elements += [t, Spacer(1, 0.5*cm)]
         return elements
 
-    def _build_groups_section(self, kpi_data: dict) -> list:
-        """Построение секции с детализацией по группам."""
-        elements = []
+    def _groups_section(self, kpi_data):
+        elements = [Paragraph('2. Детализация по группам показателей', self.styles['SectionHead'])]
 
-        heading = Paragraph("2. ДЕТАЛИЗАЦИЯ ПО ГРУППАМ ПОКАЗАТЕЛЕЙ", self.styles['CustomHeading'])
-        elements.append(heading)
-        elements.append(Spacer(1, 0.5 * cm))
+        for group_data in kpi_data['group_scores'].values():
+            g_score = group_data['score']
+            g_color = _score_color(g_score)
 
-        for group_id, group_data in kpi_data['group_scores'].items():
-            # Название группы
-            group_title = Paragraph(
-                f"<b>{group_data['name']}</b> - {group_data['score']:.1f}%",
-                self.styles['CustomBody']
+            # Строка заголовка группы
+            group_header = Table(
+                [[Paragraph(f"<b>{group_data['name']}</b>", self.styles['BodyBold']),
+                  Paragraph(f"<font color='{g_color.hexval()}'><b>{g_score:.1f}%</b></font>",
+                            self.styles['BodyBold'])]],
+                colWidths=[13*cm, 4*cm]
             )
-            elements.append(group_title)
-            elements.append(Spacer(1, 0.3 * cm))
+            group_header.setStyle(TableStyle([
+                ('BACKGROUND',    (0,0), (-1,-1), GRAY_BG),
+                ('TOPPADDING',    (0,0), (-1,-1), 7),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 7),
+                ('LEFTPADDING',   (0,0), (-1,-1), 10),
+                ('ALIGN',         (1,0), (1,-1), 'RIGHT'),
+                ('RIGHTPADDING',  (1,0), (1,-1), 10),
+                ('LINEBELOW',     (0,0), (-1,-1), 2, g_color),
+            ]))
+            elements.append(group_header)
 
-            # Таблица с показателями группы
-            table_data = [['Показатель', 'Факт', 'План', 'Выполнение']]
-
-            for indicator in group_data['indicators']:
-                table_data.append([
-                    indicator['name'],
-                    f"{indicator['actual_value']:.1f} {indicator['unit']}",
-                    f"{indicator['target_value']:.1f} {indicator['unit']}",
-                    f"{indicator['completion_percent']:.1f}%"
+            # Строки показателей
+            ind_rows = [
+                [Paragraph('<b>Показатель</b>', self.styles['Small']),
+                 Paragraph('<b>Факт</b>', self.styles['Small']),
+                 Paragraph('<b>План</b>', self.styles['Small']),
+                 Paragraph('<b>Выполнение</b>', self.styles['Small'])],
+            ]
+            for ind in group_data['indicators']:
+                pct = ind['completion_percent']
+                pct_str = f"{pct:.1f}%"
+                ind_rows.append([
+                    Paragraph(ind['name'], self.styles['Body']),
+                    f"{ind['actual_value']:.1f} {ind.get('unit', '')}".strip(),
+                    f"{ind['target_value']:.1f} {ind.get('unit', '')}".strip(),
+                    Paragraph(f"<font color='{_score_color(pct).hexval()}'><b>{pct_str}</b></font>",
+                              self.styles['Body']),
                 ])
 
-            table = Table(table_data, colWidths=[7 * cm, 3 * cm, 3 * cm, 3 * cm])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498DB')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), self.font_name),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+            ind_table = Table(ind_rows, colWidths=[8*cm, 3*cm, 3*cm, 3*cm])
+            ind_table.setStyle(TableStyle([
+                ('BACKGROUND',    (0,0), (-1,0), colors.HexColor('#495057')),
+                ('TEXTCOLOR',     (0,0), (-1,0), WHITE),
+                ('FONTNAME',      (0,0), (-1,0), self.font_bold),
+                ('FONTNAME',      (0,1), (-1,-1), self.font),
+                ('FONTSIZE',      (0,0), (-1,-1), 9),
+                ('ALIGN',         (1,0), (-1,-1), 'CENTER'),
+                ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, GRAY_BG]),
+                ('GRID',          (0,0), (-1,-1), 0.4, GRAY_LINE),
+                ('TOPPADDING',    (0,0), (-1,-1), 5),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 5),
             ]))
-
-            elements.append(table)
-            elements.append(Spacer(1, 0.8 * cm))
+            elements += [ind_table, Spacer(1, 0.5*cm)]
 
         return elements
 
-    def _build_history_section(self, history: list) -> list:
-        """Построение секции с историей KPI."""
-        elements = []
+    def _history_section(self, history):
+        elements = [Paragraph('3. Динамика KPI за последние 6 месяцев', self.styles['SectionHead'])]
 
-        heading = Paragraph("3. ДИНАМИКА KPI ЗА ПОСЛЕДНИЕ 6 МЕСЯЦЕВ", self.styles['CustomHeading'])
-        elements.append(heading)
-        elements.append(Spacer(1, 0.5 * cm))
-
-        # Таблица с историей
-        table_data = [['Период', 'Балл KPI', 'Уровень', 'Премия']]
-
+        rows = [
+            [Paragraph(f'<b>{h}</b>', self.styles['Small']) for h in
+             ['Период', 'Балл KPI', 'Уровень эффективности', 'Премия']],
+        ]
         for item in history:
-            table_data.append([
-                self._format_period(item['period']),
-                f"{item['total_score']:.1f}%",
-                self._format_level(item['performance_level']),
-                f"{item['bonus_amount']:,.0f} ₽"
+            sc = item['total_score']
+            rows.append([
+                self._fmt_period(item['period']),
+                Paragraph(f"<font color='{_score_color(sc).hexval()}'><b>{sc:.1f}%</b></font>",
+                          self.styles['Body']),
+                self._fmt_level(item['performance_level']),
+                f"{item['bonus_amount']:,.0f} ₽",
             ])
 
-        table = Table(table_data, colWidths=[4 * cm, 4 * cm, 4 * cm, 4 * cm])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), self.font_name),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        t = Table(rows, colWidths=[4*cm, 4*cm, 5*cm, 4*cm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0), DARK),
+            ('TEXTCOLOR',     (0,0), (-1,0), WHITE),
+            ('FONTNAME',      (0,0), (-1,0), self.font_bold),
+            ('FONTNAME',      (0,1), (-1,-1), self.font),
+            ('FONTSIZE',      (0,0), (-1,-1), 9),
+            ('ALIGN',         (0,0), (-1,-1), 'CENTER'),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, GRAY_BG]),
+            ('GRID',          (0,0), (-1,-1), 0.4, GRAY_LINE),
+            ('TOPPADDING',    (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ]))
-
-        elements.append(table)
-        elements.append(Spacer(1, 1 * cm))
-
+        elements += [t, Spacer(1, 0.5*cm)]
         return elements
 
-    def _build_recommendations_section(self, recommendations: list) -> list:
-        """Построение секции с рекомендациями."""
-        elements = []
-
-        heading = Paragraph("4. РЕКОМЕНДАЦИИ ПО УЛУЧШЕНИЮ ПОКАЗАТЕЛЕЙ", self.styles['CustomHeading'])
-        elements.append(heading)
-        elements.append(Spacer(1, 0.5 * cm))
-
-        for i, rec in enumerate(recommendations, 1):
-            rec_text = f"""
-            <b>{i}. {rec['indicator_name']}</b><br/>
-            <i>Текущее выполнение: {rec['current_completion']:.1f}%</i><br/>
-            {rec['text']}<br/>
-            <b>Целевое значение:</b> {rec['target_value']:.1f}<br/>
-            <b>Срок:</b> {self._format_period(rec['deadline_period'])}
-            """
-            elements.append(Paragraph(rec_text, self.styles['CustomBody']))
-            elements.append(Spacer(1, 0.5 * cm))
-
+    def _recommendations_section(self, recs):
+        elements = [
+            HRFlowable(width='100%', thickness=1, color=GRAY_LINE),
+            Spacer(1, 0.3*cm),
+            Paragraph('4. Рекомендации по улучшению показателей', self.styles['SectionHead']),
+        ]
+        for i, rec in enumerate(recs, 1):
+            elements.append(Paragraph(
+                f'<b>{i}. {rec["indicator_name"]}</b> — текущее выполнение: {rec["current_completion"]:.1f}%',
+                self.styles['BodyBold']
+            ))
+            elements.append(Paragraph(rec['text'], self.styles['Body']))
+            elements.append(Paragraph(
+                f'Целевое значение: {rec["target_value"]:.1f} · Срок: {self._fmt_period(rec["deadline_period"])}',
+                self.styles['Small']
+            ))
+            elements.append(Spacer(1, 0.3*cm))
         return elements
 
-    def _format_period(self, period: str) -> str:
-        """Форматирование периода для отображения."""
-        months = {
-            '01': 'Январь', '02': 'Февраль', '03': 'Март', '04': 'Апрель',
-            '05': 'Май', '06': 'Июнь', '07': 'Июль', '08': 'Август',
-            '09': 'Сентябрь', '10': 'Октябрь', '11': 'Ноябрь', '12': 'Декабрь'
-        }
-        year, month = period.split('-')
-        return f"{months[month]} {year}"
+    def _footer_note(self):
+        return [
+            Spacer(1, 0.4*cm),
+            HRFlowable(width='100%', thickness=0.5, color=GRAY_LINE),
+            Paragraph(
+                f'Документ сформирован автоматически системой управления KPI · {datetime.now().strftime("%d.%m.%Y %H:%M")}',
+                self.styles['Small']
+            ),
+        ]
 
-    def _format_level(self, level: str) -> str:
-        """Форматирование уровня эффективности."""
-        levels = {
-            'высокий': 'Высокая эффективность',
-            'средний': 'Средняя эффективность',
-            'низкий': 'Низкая эффективность'
-        }
-        return levels.get(level, level)
-
-    def _get_score_color(self, score: float) -> str:
-        """Определение цвета для балла."""
-        if score >= 90:
-            return '#27AE60'  # Зеленый
-        elif score >= 70:
-            return '#F39C12'  # Оранжевый
-        else:
-            return '#E74C3C'  # Красный
-
-    def _get_level_color(self, level: str) -> str:
-        """Определение цвета для уровня эффективности."""
-        colors_map = {
-            'высокий': '#27AE60',
-            'средний': '#F39C12',
-            'низкий': '#E74C3C'
-        }
-        return colors_map.get(level, '#95A5A6')
-
-    def generate_report_response(self, user_id: int, period: str):
-        """
-        Генерация PDF-отчета для HTTP-ответа (без сохранения на диск).
-
-        Args:
-            user_id: ID пользователя
-            period: Период в формате 'YYYY-MM'
-
-        Returns:
-            BytesIO объект с PDF
-        """
+    # ──────────────────────────────────────────────────────────────
+    # Хелперы
+    # ──────────────────────────────────────────────────────────────
+    def _fmt_period(self, period: str) -> str:
+        months = {'01':'Январь','02':'Февраль','03':'Март','04':'Апрель',
+                  '05':'Май','06':'Июнь','07':'Июль','08':'Август',
+                  '09':'Сентябрь','10':'Октябрь','11':'Ноябрь','12':'Декабрь'}
         try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            raise
+            year, month = period.split('-')
+            return f"{months[month]} {year}"
+        except Exception:
+            return period
 
-        # Получаем данные
+    def _fmt_level(self, level: str) -> str:
+        return {'высокий':'Высокая эффективность',
+                'средний':'Средняя эффективность',
+                'низкий':'Низкая эффективность'}.get(level, level)
+
+    # ──────────────────────────────────────────────────────────────
+    # Excel экспорт
+    # ──────────────────────────────────────────────────────────────
+    def generate_excel_response(self, user_id: int, period: str) -> BytesIO:
+        from openpyxl import Workbook
+        from openpyxl.styles import (
+            Font, PatternFill, Alignment, Border, Side, numbers
+        )
+        from openpyxl.utils import get_column_letter
+
+        user     = User.objects.get(id=user_id)
         kpi_data = self.calculator.calculate_dashboard(user_id, period)
-        recommendations = self.calculator.generate_recommendations(user_id, period)
-        history = self.calculator.get_user_kpi_history(user_id, months=6)
+        history  = self.calculator.get_user_kpi_history(user_id, months=6)
+        recs     = self.calculator.generate_recommendations(user_id, period)
 
-        # Создаем PDF в памяти
+        wb = Workbook()
+
+        # ── Лист 1: Сводка ──────────────────────────────────────
+        ws1 = wb.active
+        ws1.title = 'Сводка'
+
+        # Стили
+        hdr_font    = Font(bold=True, color='FFFFFF', size=12)
+        hdr_fill    = PatternFill('solid', fgColor='1A73E8')
+        sub_font    = Font(bold=True, size=11, color='1E2A38')
+        center      = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        left        = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        thin        = Side(style='thin', color='DEE2E6')
+        border      = Border(left=thin, right=thin, top=thin, bottom=thin)
+        gray_fill   = PatternFill('solid', fgColor='F5F7FA')
+
+        def hdr_row(ws, row, values, col_start=1):
+            for i, v in enumerate(values):
+                c = ws.cell(row=row, column=col_start+i, value=v)
+                c.font = hdr_font; c.fill = hdr_fill
+                c.alignment = center; c.border = border
+
+        def data_row(ws, row, values, col_start=1, bold=False, fill=None):
+            for i, v in enumerate(values):
+                c = ws.cell(row=row, column=col_start+i, value=v)
+                c.font = Font(bold=bold, size=10)
+                c.alignment = left; c.border = border
+                if fill: c.fill = fill
+
+        # Заголовок листа
+        ws1.merge_cells('A1:C1')
+        title_cell = ws1['A1']
+        title_cell.value = f'Отчёт KPI — {user.get_full_name() or user.username} — {self._fmt_period(period)}'
+        title_cell.font  = Font(bold=True, size=14, color='1A73E8')
+        title_cell.alignment = center
+        ws1.row_dimensions[1].height = 30
+
+        ws1.cell(row=2, column=1, value=f'Сформирован: {datetime.now().strftime("%d.%m.%Y %H:%M")}')
+        ws1.cell(row=2, column=1).font = Font(size=9, color='6C757D')
+
+        # Сводная таблица
+        hdr_row(ws1, 4, ['Показатель', 'Значение', 'Комментарий'])
+        score = kpi_data['total_score']
+        data_row(ws1, 5, ['Итоговый балл KPI', f"{score:.1f}%",
+                          'Отлично' if score>=90 else ('Хорошо' if score>=70 else 'Требует улучшения')])
+        data_row(ws1, 6, ['Уровень эффективности', self._fmt_level(kpi_data['performance_level']), ''],
+                 fill=gray_fill)
+        data_row(ws1, 7, ['Премиальная выплата', f"{kpi_data['bonus_amount']:,.0f} ₽", ''])
+
+        ws1.column_dimensions['A'].width = 30
+        ws1.column_dimensions['B'].width = 22
+        ws1.column_dimensions['C'].width = 28
+
+        # ── Лист 2: Показатели ──────────────────────────────────
+        ws2 = wb.create_sheet('Показатели по группам')
+
+        hdr_row(ws2, 1, ['Группа', 'Показатель', 'Факт', 'План', 'Единица', 'Выполнение %', 'Статус'])
+        r = 2
+        for group_data in kpi_data['group_scores'].values():
+            for ind in group_data['indicators']:
+                pct = ind['completion_percent']
+                status = 'Выполнено' if pct >= 100 else ('В норме' if pct >= 70 else 'Не выполнено')
+                row_fill = gray_fill if r % 2 == 0 else None
+                data_row(ws2, r, [
+                    group_data['name'],
+                    ind['name'],
+                    round(ind['actual_value'], 2),
+                    round(ind['target_value'], 2),
+                    ind.get('unit', ''),
+                    round(pct, 1),
+                    status,
+                ], fill=row_fill)
+                # Цвет колонки "Выполнение"
+                pct_cell = ws2.cell(row=r, column=6)
+                if pct >= 90:
+                    pct_cell.fill = PatternFill('solid', fgColor='D4EDDA')
+                    pct_cell.font = Font(color='155724', bold=True)
+                elif pct >= 70:
+                    pct_cell.fill = PatternFill('solid', fgColor='FFF3CD')
+                    pct_cell.font = Font(color='856404', bold=True)
+                else:
+                    pct_cell.fill = PatternFill('solid', fgColor='F8D7DA')
+                    pct_cell.font = Font(color='721C24', bold=True)
+                r += 1
+
+        for col, w in zip(['A','B','C','D','E','F','G'], [22, 32, 10, 10, 12, 14, 14]):
+            ws2.column_dimensions[col].width = w
+
+        # ── Лист 3: История ─────────────────────────────────────
+        ws3 = wb.create_sheet('История KPI')
+        hdr_row(ws3, 1, ['Период', 'Балл KPI (%)', 'Уровень эффективности', 'Премия (₽)'])
+        for i, item in enumerate(history, 2):
+            fill = gray_fill if i % 2 == 0 else None
+            data_row(ws3, i, [
+                self._fmt_period(item['period']),
+                round(item['total_score'], 1),
+                self._fmt_level(item['performance_level']),
+                round(item['bonus_amount'], 0),
+            ], fill=fill)
+        for col, w in zip(['A','B','C','D'], [20, 14, 26, 16]):
+            ws3.column_dimensions[col].width = w
+
+        # ── Лист 4: Рекомендации ────────────────────────────────
+        if recs:
+            ws4 = wb.create_sheet('Рекомендации')
+            hdr_row(ws4, 1, ['Показатель', 'Текущее выполнение %', 'Рекомендация', 'Целевое значение', 'Срок'])
+            for i, rec in enumerate(recs, 2):
+                fill = gray_fill if i % 2 == 0 else None
+                data_row(ws4, i, [
+                    rec['indicator_name'],
+                    round(rec['current_completion'], 1),
+                    rec['text'],
+                    rec['target_value'],
+                    self._fmt_period(rec['deadline_period']),
+                ], fill=fill)
+            for col, w in zip(['A','B','C','D','E'], [26, 20, 48, 16, 16]):
+                ws4.column_dimensions[col].width = w
+
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-
-        # Построение содержимого
-        story = []
-        story.extend(self._build_title_page(user, period, kpi_data))
-        story.extend(self._build_summary_section(kpi_data))
-        story.extend(self._build_groups_section(kpi_data))
-        story.extend(self._build_history_section(history))
-
-        if recommendations:
-            story.extend(self._build_recommendations_section(recommendations))
-
-        # Сборка
-        doc.build(story)
-
+        wb.save(buffer)
         buffer.seek(0)
         return buffer
+
+    # Оставляем совместимость
+    def generate_user_report(self, user_id: int, period: str) -> str:
+        return self.generate_report_response(user_id, period)

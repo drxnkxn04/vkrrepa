@@ -1,17 +1,32 @@
-﻿<template>
+<template>
   <div class="dashboard-container">
+    <!-- Шапка с кнопками действий -->
     <div class="header">
-      <h1>Ваш персональный дашборд KPI</h1>
-      <div v-if="availablePeriods.length > 0" class="period-selector">
-        <label for="period">Период:</label>
-        <select id="period" v-model="selectedPeriod" @change="loadData">
-          <option v-for="period in availablePeriods" :key="period" :value="period">
-            {{ formatDate(period) }}
-          </option>
-        </select>
+      <div class="header-left">
+        <h1>Ваш персональный дашборд KPI</h1>
+        <div v-if="availablePeriods.length > 0" class="period-selector">
+          <label for="period">Период:</label>
+          <select id="period" v-model="selectedPeriod" @change="loadData">
+            <option v-for="p in availablePeriods" :key="p" :value="p">
+              {{ formatDate(p) }}
+            </option>
+          </select>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button @click="showDataInputModal" class="btn btn-primary">
+          + Добавить данные
+        </button>
+        <button @click="generateReport" class="btn btn-outline-primary">
+          Скачать PDF
+        </button>
+        <button @click="generateExcel" class="btn btn-outline-excel">
+          Скачать Excel
+        </button>
       </div>
     </div>
-    
+
+    <!-- Сводные карточки -->
     <div class="summary-cards">
       <div class="card total-score">
         <h3>Общий балл KPI</h3>
@@ -25,52 +40,23 @@
         </div>
         <div class="bonus-info">
           <p>Потенциальная премия: <strong>{{ formatCurrency(bonusAmount) }}</strong></p>
-          <p class="trend" :class="trendClass">
-            {{ trendText }}
-          </p>
+          <p class="trend" :class="trendClass">{{ trendText }}</p>
         </div>
       </div>
-      
+
       <div class="card progress-overview">
         <h3>Динамика показателей</h3>
         <line-chart v-if="chartData.labels.length > 0" :data="chartData" :options="chartOptions" />
-        <p v-else>Загрузка данных для графика...</p>
+        <p v-else class="empty-chart">Недостаточно данных для графика</p>
       </div>
     </div>
-    
-    <div class="kpi-groups">
-      <div v-for="(group, index) in kpiGroups" :key="index" class="group-card">
-        <div class="group-header" @click="toggleGroup(index)">
-          <h3>{{ group.name }}</h3>
-          <div class="group-score">
-            <span class="score">{{ group.score.toFixed(1) }}%</span>
-            <span class="progress-indicator" :class="getProgressClass(group.score)"></span>
-          </div>
-          <span class="toggle-icon">{{ expandedGroups[index] ? '−' : '+' }}</span>
-        </div>
-        
-        <div v-if="expandedGroups[index]" class="group-details">
-          <div v-for="(indicator, idx) in group.indicators" :key="idx" class="indicator-item">
-            <div class="indicator-name">{{ indicator.name }}</div>
-            <div class="indicator-progress">
-              <div class="progress-bar">
-                <div 
-                  class="progress-fill" 
-                  :style="{ width: indicator.completion_percent + '%'}"
-                  :class="getProgressClass(indicator.completion_percent)"
-                ></div>
-              </div>
-              <div class="progress-text">
-                {{ indicator.actual_value.toFixed(1) }} / {{ indicator.target_value.toFixed(1) }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    
+
+    <!-- Мои достижения за период -->
     <div class="values-section">
-      <h2>Мои достижения за период</h2>
+      <div class="section-header">
+        <h2>Мои достижения за период</h2>
+        <span class="period-label">{{ selectedPeriod ? formatDate(selectedPeriod) : '' }}</span>
+      </div>
       <div v-if="valuesLoading" class="values-loading">Загрузка...</div>
       <div v-else-if="values.length > 0" class="values-table-wrap">
         <table class="values-table">
@@ -86,31 +72,99 @@
           </thead>
           <tbody>
             <tr v-for="value in values" :key="value.id">
-              <td>{{ value.indicator?.name || '—' }}</td>
-              <td>{{ value.actual_value }}</td>
-              <td>{{ value.target_value }}</td>
+              <td>
+                <div class="indicator-cell">
+                  <span class="indicator-name">{{ value.indicator?.name || '—' }}</span>
+                  <span class="indicator-group">{{ value.indicator?.group?.name || '' }}</span>
+                </div>
+              </td>
+              <td class="value-cell">{{ value.actual_value }}</td>
+              <td class="value-cell muted">{{ value.target_value }}</td>
               <td>
                 <span class="status-badge" :class="statusClass(value.status)">
                   {{ formatStatus(value.status) }}
                 </span>
               </td>
-              <td>{{ value.review_comment || '—' }}</td>
+              <td class="comment-cell">{{ value.review_comment || '—' }}</td>
               <td>
-                <button
-                  v-if="canSubmit(value)"
-                  class="btn btn-sm btn-outline"
-                  @click="submitValue(value)"
-                >
-                  Отправить на проверку
-                </button>
+                <div class="action-buttons">
+                  <button
+                    v-if="canEdit(value)"
+                    class="btn btn-sm btn-edit"
+                    @click="openEditModal(value)"
+                    title="Редактировать"
+                  >
+                    Редактировать
+                  </button>
+                  <button
+                    v-if="canSubmit(value)"
+                    class="btn btn-sm btn-submit"
+                    @click="submitValue(value)"
+                    title="Отправить на проверку"
+                  >
+                    На проверку
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div v-else class="values-empty">Нет данных за выбранный период</div>
+      <div v-else class="values-empty">
+        <span>Нет данных за выбранный период.</span>
+        <button @click="showDataInputModal" class="btn btn-sm btn-primary" style="margin-left:12px">
+          + Добавить
+        </button>
+      </div>
     </div>
 
+    <!-- KPI по группам -->
+    <div class="kpi-groups-section">
+      <h2>Показатели по направлениям</h2>
+      <div class="groups-grid">
+        <div
+          v-for="(group, index) in kpiGroups"
+          :key="index"
+          class="group-card"
+          :class="getProgressClass(group.score)"
+        >
+          <div class="group-card-header" @click="toggleGroup(index)">
+            <div class="group-card-title">
+              <span class="group-dot" :class="getProgressClass(group.score)"></span>
+              <span>{{ group.name }}</span>
+            </div>
+            <div class="group-card-score">
+              <span class="score-num" :class="getProgressClass(group.score)">{{ group.score.toFixed(0) }}%</span>
+              <span class="toggle-btn">{{ expandedGroups[index] ? '▲' : '▼' }}</span>
+            </div>
+          </div>
+          <div class="group-score-bar">
+            <div
+              class="group-score-fill"
+              :class="getProgressClass(group.score)"
+              :style="{ width: Math.min(group.score, 100) + '%' }"
+            ></div>
+          </div>
+          <div v-if="expandedGroups[index]" class="group-indicators">
+            <div v-for="(ind, idx) in group.indicators" :key="idx" class="ind-row">
+              <div class="ind-name">{{ ind.name }}</div>
+              <div class="ind-bar-wrap">
+                <div class="ind-bar">
+                  <div
+                    class="ind-bar-fill"
+                    :class="getProgressClass(ind.completion_percent)"
+                    :style="{ width: Math.min(ind.completion_percent, 100) + '%' }"
+                  ></div>
+                </div>
+                <span class="ind-values">{{ ind.actual_value.toFixed(1) }} / {{ ind.target_value.toFixed(1) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Рекомендации -->
     <div class="recommendations" v-if="recommendations.length > 0">
       <h2>Рекомендации по улучшению</h2>
       <div v-for="(rec, index) in recommendations" :key="index" class="recommendation-card">
@@ -127,21 +181,13 @@
         </div>
       </div>
     </div>
-    
-    <div class="actions">
-      <button @click="generateReport" class="btn btn-primary">
-        Сформировать отчет в PDF
-      </button>
-      <button @click="showDataInputModal" class="btn btn-secondary">
-        Добавить данные
-      </button>
-    </div>
-    
-    <data-input-modal 
+
+    <data-input-modal
       v-if="showModal"
-      @close="showModal = false"
+      :edit-value="editingValue"
+      @close="closeModal"
       @data-saved="loadData"
-    /> 
+    />
   </div>
 </template>
 
@@ -152,10 +198,7 @@ import { kpiAPI, downloadPDF } from '@/services/api';
 
 export default {
   name: 'DashboardView',
-  components: {
-    LineChart,
-    DataInputModal
-  },
+  components: { LineChart, DataInputModal },
   data() {
     return {
       selectedPeriod: '',
@@ -170,6 +213,7 @@ export default {
       values: [],
       valuesLoading: false,
       showModal: false,
+      editingValue: null,
       chartData: {
         labels: [],
         datasets: [{
@@ -230,8 +274,8 @@ export default {
         if (this.availablePeriods.length > 0) {
           const now = new Date();
           const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-          this.selectedPeriod = this.availablePeriods.includes(currentPeriod) 
-            ? currentPeriod 
+          this.selectedPeriod = this.availablePeriods.includes(currentPeriod)
+            ? currentPeriod
             : this.availablePeriods[0];
           await this.loadData();
         }
@@ -243,22 +287,19 @@ export default {
     async loadData() {
       if (!this.selectedPeriod) return;
       try {
-        this.$toast.info('Загрузка данных...');
         const response = await kpiAPI.getDashboard(this.selectedPeriod);
         const data = response.data;
-        
         this.totalScore = data.total_score;
         this.performanceLevel = data.performance_level;
         this.bonusAmount = data.bonus_amount;
         this.kpiGroups = Object.values(data.group_scores);
-        this.expandedGroups = Array(this.kpiGroups.length).fill(true);
-        
-        await this.loadPreviousPeriodData();
-        await this.loadRecommendations();
-        await this.loadValues();
-        await this.loadChartData();
-        
-        this.$toast.success('Данные успешно загружены');
+        this.expandedGroups = Array(this.kpiGroups.length).fill(false);
+        await Promise.all([
+          this.loadPreviousPeriodData(),
+          this.loadRecommendations(),
+          this.loadValues(),
+          this.loadChartData(),
+        ]);
       } catch (error) {
         console.error('Ошибка загрузки данных дашборда:', error);
         this.$toast.error('Не удалось загрузить данные дашборда');
@@ -269,14 +310,11 @@ export default {
         const [year, month] = this.selectedPeriod.split('-');
         let prevYear = parseInt(year);
         let prevMonth = parseInt(month) - 1;
-        if (prevMonth === 0) {
-          prevMonth = 12;
-          prevYear -= 1;
-        }
+        if (prevMonth === 0) { prevMonth = 12; prevYear -= 1; }
         const prevPeriod = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
         const response = await kpiAPI.getDashboard(prevPeriod);
         this.previousScore = response.data.total_score;
-      } catch (error) {
+      } catch {
         this.previousScore = 0;
       }
     },
@@ -291,9 +329,7 @@ export default {
     async loadValues() {
       this.valuesLoading = true;
       try {
-        const response = await kpiAPI.getValuesByParams({
-          period: this.selectedPeriod
-        });
+        const response = await kpiAPI.getValuesByParams({ period: this.selectedPeriod });
         this.values = Array.isArray(response.data) ? response.data : [];
       } catch (error) {
         console.error('Ошибка загрузки значений KPI:', error);
@@ -312,16 +348,14 @@ export default {
         this.$toast.error('Не удалось отправить на проверку');
       }
     },
+    canEdit(value) {
+      return value && (value.status === 'draft' || value.status === 'rejected');
+    },
     canSubmit(value) {
       return value && (value.status === 'draft' || value.status === 'rejected');
     },
     formatStatus(status) {
-      const map = {
-        draft: 'Черновик',
-        submitted: 'На проверке',
-        approved: 'Подтверждено',
-        rejected: 'Отклонено'
-      };
+      const map = { draft: 'Черновик', submitted: 'На проверке', approved: 'Подтверждено', rejected: 'Отклонено' };
       return map[status] || status || '-';
     },
     statusClass(status) {
@@ -332,20 +366,19 @@ export default {
         const response = await kpiAPI.getHistory(6);
         if (response.data && Array.isArray(response.data)) {
           const history = response.data.reverse();
-          this.chartData.labels = history.map(item => this.formatDate(item.period));
-          this.chartData.datasets[0].data = history.map(item => item.total_score);
-        } else {
-          this.chartData.labels = [];
-          this.chartData.datasets[0].data = [];
+          this.chartData = {
+            ...this.chartData,
+            labels: history.map(item => this.formatDate(item.period)),
+            datasets: [{ ...this.chartData.datasets[0], data: history.map(item => item.total_score) }]
+          };
         }
       } catch (error) {
         console.error('Ошибка загрузки истории KPI:', error);
-        this.chartData.labels = [];
-        this.chartData.datasets[0].data = [];
       }
     },
     toggleGroup(index) {
       this.expandedGroups[index] = !this.expandedGroups[index];
+      this.expandedGroups = [...this.expandedGroups];
     },
     getProgressClass(value) {
       if (value >= 90) return 'excellent';
@@ -355,30 +388,43 @@ export default {
     },
     formatDate(period) {
       const [year, month] = period.split('-');
-      const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+      const monthNames = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
       return `${monthNames[parseInt(month) - 1]} ${year}`;
     },
     formatCurrency(amount) {
-      return new Intl.NumberFormat('ru-RU', { 
-        style: 'currency', 
-        currency: 'RUB', 
-        minimumFractionDigits: 0, 
-        maximumFractionDigits: 0 
-      }).format(amount);
+      return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
     },
     async generateReport() {
       try {
         const response = await kpiAPI.generateReport(this.selectedPeriod);
-        const filename = `KPI_Report_${this.selectedPeriod}.pdf`;
-        downloadPDF(response.data, filename);
-        this.$toast.success('Отчет сформирован и загружен');
+        downloadPDF(response.data, `KPI_Report_${this.selectedPeriod}.pdf`);
+        this.$toast.success('PDF отчёт загружен');
       } catch (error) {
-        console.error('Ошибка генерации отчета:', error);
-        this.$toast.error('Не удалось сгенерировать отчет');
+        console.error('Ошибка генерации PDF:', error);
+        this.$toast.error('Не удалось сгенерировать PDF');
+      }
+    },
+    async generateExcel() {
+      try {
+        const response = await kpiAPI.generateExcelReport(this.selectedPeriod);
+        downloadPDF(response.data, `KPI_Report_${this.selectedPeriod}.xlsx`);
+        this.$toast.success('Excel отчёт загружен');
+      } catch (error) {
+        console.error('Ошибка генерации Excel:', error);
+        this.$toast.error('Не удалось сгенерировать Excel');
       }
     },
     showDataInputModal() {
+      this.editingValue = null;
       this.showModal = true;
+    },
+    openEditModal(value) {
+      this.editingValue = value;
+      this.showModal = true;
+    },
+    closeModal() {
+      this.showModal = false;
+      this.editingValue = null;
     },
     async markRecommendationDone(recId) {
       try {
@@ -396,69 +442,125 @@ export default {
 
 <style scoped>
 .dashboard-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.summary-cards { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; margin-bottom: 32px; }
-.card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); padding: 20px; }
-.progress-overview { min-height: 300px; }
+
+/* Шапка */
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px; }
+.header-left h1 { margin: 0 0 8px; font-size: 1.5rem; }
+.period-selector { display: flex; align-items: center; gap: 8px; }
+.period-selector select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; }
+.header-actions { display: flex; gap: 10px; flex-shrink: 0; padding-top: 4px; }
+
+/* Кнопки */
+.btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-weight: 500; font-size: 0.9rem; transition: all 0.2s; }
+.btn-primary { background: #007bff; color: white; }
+.btn-primary:hover { background: #0069d9; }
+.btn-outline-primary { background: white; color: #007bff; border: 1.5px solid #007bff; }
+.btn-outline-primary:hover { background: #f0f7ff; }
+.btn-outline-excel { background: white; color: #1d6f42; border: 1.5px solid #1d6f42; }
+.btn-outline-excel:hover { background: #f0fff4; }
+.btn-outline { background: transparent; border: 1px solid #6c757d; color: #6c757d; }
+.btn-outline:hover { background: #f8f9fa; }
+.btn-sm { padding: 5px 10px; font-size: 0.82rem; }
+.btn-edit { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+.btn-edit:hover { background: #ffe8a0; }
+.btn-submit { background: #d4edda; color: #155724; border: 1px solid #28a745; }
+.btn-submit:hover { background: #b8dfc4; }
+
+/* Сводные карточки */
+.summary-cards { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; margin-bottom: 28px; }
+.card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 24px; }
+.progress-overview { min-height: 280px; }
+.empty-chart { color: #aaa; text-align: center; margin-top: 80px; }
 .total-score { text-align: center; }
-.score-value { font-size: 3.5rem; font-weight: bold; margin: 16px 0; transition: color 0.3s ease; }
+.score-value { font-size: 3.5rem; font-weight: 800; margin: 12px 0; }
 .score-value.excellent { color: #28a745; }
 .score-value.good { color: #ffc107; }
 .score-value.needs-improvement { color: #dc3545; }
-.badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 500; }
-.badge.level-высокий { background-color: #d4edda; color: #155724; }
-.badge.level-средний { background-color: #fff3cd; color: #856404; }
-.badge.level-низкий { background-color: #f8d7da; color: #721c24; }
-.badge.warning { background-color: #fff3cd; color: #856404; }
-.trend { margin-top: 8px; font-size: 0.9rem; }
+.badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; }
+.badge.level-высокий { background: #d4edda; color: #155724; }
+.badge.level-средний { background: #fff3cd; color: #856404; }
+.badge.level-низкий { background: #f8d7da; color: #721c24; }
+.badge.warning { background: #fff3cd; color: #856404; }
+.bonus-info { margin-top: 12px; font-size: 0.9rem; color: #555; }
+.trend { font-size: 0.85rem; margin-top: 4px; }
 .trend.positive { color: #28a745; }
 .trend.negative { color: #dc3545; }
 .trend.neutral { color: #6c757d; }
-.group-card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); margin-bottom: 16px; overflow: hidden; }
-.group-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; background-color: #f8f9fa; cursor: pointer; transition: background-color 0.2s ease; }
-.group-header:hover { background-color: #e9ecef; }
-.group-score { display: flex; align-items: center; gap: 8px; }
-.progress-indicator { width: 12px; height: 12px; border-radius: 50%; }
-.progress-indicator.excellent { background-color: #28a745; }
-.progress-indicator.good { background-color: #ffc107; }
-.progress-indicator.medium { background-color: #fd7e14; }
-.progress-indicator.poor { background-color: #dc3545; }
-.toggle-icon { font-weight: bold; font-size: 1.2rem; }
-.group-details { padding: 16px; border-top: 1px solid #e9ecef; }
-.indicator-item { margin-bottom: 12px; }
-.indicator-name { font-weight: 500; margin-bottom: 4px; }
-.indicator-progress { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.progress-bar { flex: 1; height: 8px; background-color: #e9ecef; border-radius: 4px; }
-.progress-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
-.progress-fill.excellent { background-color: #28a745; }
-.progress-fill.good { background-color: #ffc107; }
-.progress-fill.medium { background-color: #fd7e14; }
-.progress-fill.poor { background-color: #dc3545; }
-.progress-text { font-size: 0.9rem; white-space: nowrap; }
-.recommendations { margin: 32px 0; }
-.recommendation-card { background: white; border-left: 4px solid #ffc107; border-radius: 4px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); }
-.rec-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
-.rec-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
-.target { color: #6c757d; font-size: 0.9rem; }
-.actions { display: flex; gap: 12px; margin-top: 24px; }
-.btn { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-weight: 500; transition: all 0.2s ease; }
-.btn-primary { background-color: #007bff; color: white; }
-.btn-secondary { background-color: #6c757d; color: white; }
-.btn:hover { opacity: 0.9; }
-.btn-outline { background-color: transparent; border: 1px solid #6c757d; color: #6c757d; }
 
-.values-section { margin: 32px 0; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 20px; }
+/* Мои достижения */
+.values-section { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 28px; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.section-header h2 { margin: 0; font-size: 1.2rem; }
+.period-label { background: #e9ecef; color: #6c757d; font-size: 0.8rem; padding: 3px 10px; border-radius: 12px; }
 .values-table-wrap { overflow-x: auto; }
-.values-table { width: 100%; border-collapse: collapse; }
-.values-table th, .values-table td { padding: 10px; border-bottom: 1px solid #e9ecef; text-align: left; }
-.values-table th { background: #f8f9fa; }
-.values-empty { color: #6c757d; }
-.values-loading { color: #6c757d; }
-.status-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; }
+.values-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.values-table th { background: #f8f9fa; padding: 10px 12px; text-align: left; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6; white-space: nowrap; }
+.values-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+.values-table tr:last-child td { border-bottom: none; }
+.values-table tr:hover td { background: #fafafa; }
+.indicator-cell { display: flex; flex-direction: column; }
+.indicator-name { font-weight: 500; }
+.indicator-group { font-size: 0.78rem; color: #888; margin-top: 2px; }
+.value-cell { font-weight: 600; }
+.muted { color: #6c757d; font-weight: 400; }
+.comment-cell { color: #6c757d; font-size: 0.85rem; max-width: 200px; }
+.action-buttons { display: flex; gap: 6px; flex-wrap: nowrap; }
+.status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
 .status-draft { background: #e9ecef; color: #495057; }
 .status-submitted { background: #fff3cd; color: #856404; }
 .status-approved { background: #d4edda; color: #155724; }
 .status-rejected { background: #f8d7da; color: #721c24; }
-.btn-sm { padding: 6px 10px; font-size: 0.85rem; }
-</style>
+.values-empty { color: #6c757d; display: flex; align-items: center; padding: 8px 0; }
+.values-loading { color: #6c757d; }
 
+/* KPI по группам */
+.kpi-groups-section { margin-bottom: 28px; }
+.kpi-groups-section h2 { font-size: 1.2rem; margin-bottom: 16px; }
+.groups-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.group-card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); overflow: hidden; border-top: 4px solid #dee2e6; }
+.group-card.excellent { border-top-color: #28a745; }
+.group-card.good { border-top-color: #ffc107; }
+.group-card.medium { border-top-color: #fd7e14; }
+.group-card.poor { border-top-color: #dc3545; }
+.group-card-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 8px; cursor: pointer; user-select: none; }
+.group-card-header:hover { background: #fafafa; }
+.group-card-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.95rem; }
+.group-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.group-dot.excellent { background: #28a745; }
+.group-dot.good { background: #ffc107; }
+.group-dot.medium { background: #fd7e14; }
+.group-dot.poor { background: #dc3545; }
+.group-card-score { display: flex; align-items: center; gap: 8px; }
+.score-num { font-weight: 700; font-size: 1.1rem; }
+.score-num.excellent { color: #28a745; }
+.score-num.good { color: #ffc107; }
+.score-num.medium { color: #fd7e14; }
+.score-num.poor { color: #dc3545; }
+.toggle-btn { font-size: 0.7rem; color: #aaa; }
+.group-score-bar { height: 6px; background: #f0f0f0; margin: 0 16px 4px; border-radius: 3px; }
+.group-score-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.group-score-fill.excellent { background: #28a745; }
+.group-score-fill.good { background: #ffc107; }
+.group-score-fill.medium { background: #fd7e14; }
+.group-score-fill.poor { background: #dc3545; }
+.group-indicators { padding: 12px 16px 16px; border-top: 1px solid #f0f0f0; display: flex; flex-direction: column; gap: 10px; }
+.ind-row { display: flex; flex-direction: column; gap: 4px; }
+.ind-name { font-size: 0.85rem; color: #555; }
+.ind-bar-wrap { display: flex; align-items: center; gap: 10px; }
+.ind-bar { flex: 1; height: 6px; background: #e9ecef; border-radius: 3px; }
+.ind-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+.ind-bar-fill.excellent { background: #28a745; }
+.ind-bar-fill.good { background: #ffc107; }
+.ind-bar-fill.medium { background: #fd7e14; }
+.ind-bar-fill.poor { background: #dc3545; }
+.ind-values { font-size: 0.78rem; color: #888; white-space: nowrap; }
+
+/* Рекомендации */
+.recommendations { margin-bottom: 28px; }
+.recommendations h2 { font-size: 1.2rem; margin-bottom: 16px; }
+.recommendation-card { background: white; border-left: 4px solid #ffc107; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+.rec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.rec-header h3 { margin: 0; font-size: 1rem; }
+.rec-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.target { color: #6c757d; font-size: 0.9rem; }
+</style>

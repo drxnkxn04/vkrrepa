@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation
+from .models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, Notification
 
 
 class KpiIndicatorSerializer(serializers.ModelSerializer):
@@ -63,3 +63,10 @@ class KpiRecommendationSerializer(serializers.ModelSerializer):
         model = KpiRecommendation
         fields = '__all__'
         read_only_fields = ('user', 'created_at')
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'notification_type', 'title', 'message', 'kpi_value_id', 'is_read', 'created_at']
+        read_only_fields = ['notification_type', 'title', 'message', 'kpi_value_id', 'created_at']

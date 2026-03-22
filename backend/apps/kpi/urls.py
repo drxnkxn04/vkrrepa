@@ -22,6 +22,7 @@ router.register(
     views.RecommendationViewSet,
     basename='recommendation'
 )
+router.register(r'notifications', views.NotificationViewSet, basename='notification')
 
 # URL-паттерны для приложения KPI
 urlpatterns = [
@@ -73,6 +74,18 @@ urlpatterns = [
         'reports/generate/<int:user_id>/',
         views.GenerateUserReportView.as_view(),
         name='generate-user-report'
+    ),
+
+    # === Генерация Excel-отчета ===
+    path(
+        'reports/generate-excel/',
+        views.GenerateExcelReportView.as_view(),
+        name='generate-excel-report'
+    ),
+    path(
+        'reports/generate-excel/<int:user_id>/',
+        views.GenerateUserExcelReportView.as_view(),
+        name='generate-user-excel-report'
     ),
 
     # === Синхронизация с Crossref ===

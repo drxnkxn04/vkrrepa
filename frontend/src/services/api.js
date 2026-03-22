@@ -145,7 +145,10 @@ export const kpiAPI = {
   },
   
   updateValue(id, data) {
-    return apiClient.patch(`/kpi/values/${id}/`, data);
+    const isFormData = data instanceof FormData;
+    return apiClient.patch(`/kpi/values/${id}/`, data, {
+      headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : {},
+    });
   },
   
   deleteValue(id) {
@@ -211,12 +214,43 @@ export const kpiAPI = {
       responseType: 'blob',
     });
   },
+
+  generateExcelReport(period) {
+    return apiClient.get('/kpi/reports/generate-excel/', {
+      params: { period },
+      responseType: 'blob',
+    });
+  },
+
+  generateUserExcelReport(userId, period) {
+    return apiClient.get(`/kpi/reports/generate-excel/${userId}/`, {
+      params: { period },
+      responseType: 'blob',
+    });
+  },
   
   // === Интеграции ===
   syncCrossref(data) {
     return apiClient.post('/kpi/crossref/sync/', data);
   },
   
+  // === Уведомления ===
+  getNotifications() {
+    return apiClient.get('/kpi/notifications/');
+  },
+
+  getUnreadCount() {
+    return apiClient.get('/kpi/notifications/unread_count/');
+  },
+
+  markNotificationRead(id) {
+    return apiClient.post(`/kpi/notifications/${id}/read/`);
+  },
+
+  markAllRead() {
+    return apiClient.post('/kpi/notifications/read_all/');
+  },
+
   // === Для руководителей ===
   getManagerDashboard(period) {
     return apiClient.get('/kpi/manager-dashboard/', {

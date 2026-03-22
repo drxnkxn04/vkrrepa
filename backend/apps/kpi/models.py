@@ -118,6 +118,38 @@ class KpiRecommendation(models.Model):
         return f"{self.user} - {self.indicator} ({self.period})"
 
 
+class Notification(models.Model):
+    """Уведомления для пользователей"""
+    TYPE_SUBMITTED = 'submitted'
+    TYPE_APPROVED = 'approved'
+    TYPE_REJECTED = 'rejected'
+
+    TYPE_CHOICES = (
+        (TYPE_SUBMITTED, 'KPI подан на проверку'),
+        (TYPE_APPROVED, 'KPI одобрен'),
+        (TYPE_REJECTED, 'KPI отклонён'),
+    )
+
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    notification_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    title = models.CharField(max_length=255, verbose_name='Заголовок')
+    message = models.TextField(verbose_name='Сообщение')
+    kpi_value = models.ForeignKey(
+        'KpiValue', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='notifications'
+    )
+    is_read = models.BooleanField(default=False, verbose_name='Прочитано')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Уведомление'
+        verbose_name_plural = 'Уведомления'
+
+    def __str__(self):
+        return f"{self.recipient} - {self.title}"
+
+
 class UserProfile(models.Model):
     """Профиль пользователя с дополнительной информацией"""
     user = models.OneToOneField(

@@ -170,12 +170,19 @@
                   >
                     👁️
                   </button>
-                  <button 
-                    @click="generateUserReport(user.user_id)" 
+                  <button
+                    @click="generateUserReport(user.user_id)"
                     class="btn-icon"
-                    title="Скачать отчет"
+                    title="Скачать PDF отчёт"
                   >
                     📄
+                  </button>
+                  <button
+                    @click="generateUserExcelReport(user.user_id)"
+                    class="btn-icon"
+                    title="Скачать Excel отчёт"
+                  >
+                    📊
                   </button>
                 </td>
               </tr>
@@ -197,23 +204,38 @@
                 <th>Период</th>
                 <th>Факт</th>
                 <th>План</th>
-                <th>Комментарий</th>
+                <th>Документ</th>
+                <th>Комментарий сотрудника</th>
+                <th>Комментарий проверки</th>
                 <th>Решение</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="value in pendingValues" :key="value.id">
-                <td>{{ value.user?.username || '—' }}</td>
+                <td>{{ value.user?.full_name || value.user?.username || '—' }}</td>
                 <td>{{ value.indicator?.name || '—' }}</td>
                 <td>{{ formatPeriod(value.period) }}</td>
                 <td>{{ value.actual_value }}</td>
                 <td>{{ value.target_value }}</td>
                 <td>
+                  <a
+                    v-if="value.evidence"
+                    :href="value.evidence"
+                    target="_blank"
+                    class="evidence-link"
+                    title="Открыть документ"
+                  >
+                    📎 Открыть
+                  </a>
+                  <span v-else class="no-evidence">—</span>
+                </td>
+                <td class="employee-comment">{{ value.comment || '—' }}</td>
+                <td>
                   <input
                     class="review-input"
                     type="text"
                     v-model="reviewComments[value.id]"
-                    placeholder="Комментарий"
+                    placeholder="Комментарий..."
                   />
                 </td>
                 <td>
@@ -595,6 +617,18 @@ export default {
         this.$toast.error('Ошибка генерации отчета');
       }
     },
+    async generateUserExcelReport(userId) {
+      try {
+        const response = await kpiAPI.generateUserExcelReport(userId, this.selectedPeriod);
+        const target = this.users.find(u => u.user_id === userId);
+        const username = target?.username || `user_${userId}`;
+        downloadPDF(response.data, `KPI_Report_${username}_${this.selectedPeriod}.xlsx`);
+        this.$toast.success('Excel отчёт загружен');
+      } catch (error) {
+        console.error('Excel report error:', error);
+        this.$toast.error('Ошибка генерации Excel отчёта');
+      }
+    },
     exportData() {
       if (!this.filteredUsers.length) {
         this.$toast.warning('Нет данных для экспорта');
@@ -969,10 +1003,21 @@ export default {
 
 .review-input {
   width: 100%;
+  min-width: 140px;
   padding: 6px 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
 }
+
+.evidence-link {
+  color: #007bff;
+  text-decoration: none;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.evidence-link:hover { text-decoration: underline; }
+.no-evidence { color: #aaa; }
+.employee-comment { color: #555; font-size: 0.85rem; max-width: 160px; }
 
 /* Distribution Chart */
 .distribution-bar {

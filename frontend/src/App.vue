@@ -3,18 +3,54 @@
   <div id="app-container">
     <header v-if="isAuthenticated" class="app-header">
       <div class="logo">Система KPI</div>
-      
+
       <nav class="navigation">
         <router-link to="/">Дашборд</router-link>
         <router-link to="/history">История</router-link>
         <router-link to="/recommendations">Рекомендации</router-link>
         <router-link to="/crossref-import"> Импорт публикаций</router-link>
         <router-link v-if="isAdmin" to="/manager" class="admin-link"> Управление</router-link>
-        <span style="color: red; font-size: 10px;">
-  </span>
       </nav>
 
       <div class="user-menu">
+        <!-- Колокольчик уведомлений -->
+        <div class="notification-bell" ref="bellRef">
+          <button class="bell-button" @click="toggleNotifications">
+            <span class="bell-icon">&#128276;</span>
+            <span v-if="unreadCount > 0" class="bell-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
+          </button>
+
+          <div v-if="showNotifications" class="notification-dropdown">
+            <div class="notification-header">
+              <span>Уведомления</span>
+              <button v-if="unreadCount > 0" class="read-all-btn" @click="handleMarkAllRead">
+                Прочитать все
+              </button>
+            </div>
+            <div class="notification-list">
+              <div
+                v-for="notif in notifications"
+                :key="notif.id"
+                class="notification-item"
+                :class="{ unread: !notif.is_read }"
+                @click="handleMarkRead(notif)"
+              >
+                <div class="notif-icon" :class="notif.notification_type">
+                  {{ notifIcon(notif.notification_type) }}
+                </div>
+                <div class="notif-body">
+                  <div class="notif-title">{{ notif.title }}</div>
+                  <div class="notif-message">{{ notif.message }}</div>
+                  <div class="notif-time">{{ formatTime(notif.created_at) }}</div>
+                </div>
+              </div>
+              <div v-if="notifications.length === 0" class="notification-empty">
+                Нет уведомлений
+              </div>
+            </div>
+          </div>
+        </div>
+
         <router-link to="/profile" class="profile-info">
           <span class="user-avatar">{{ userInitials }}</span>
           <span class="user-name">{{ currentUser?.username }}</span>
@@ -31,9 +67,18 @@
 
 <script>
 import { mapGetters, mapActions } from 'vuex';
+import { kpiAPI } from './services/api';
 
 export default {
   name: 'App',
+  data() {
+    return {
+      showNotifications: false,
+      notifications: [],
+      unreadCount: 0,
+      pollInterval: null,
+    };
+  },
   computed: {
     ...mapGetters(['isAuthenticated', 'isAdmin', 'currentUser']),
     userInitials() {
@@ -46,11 +91,87 @@ export default {
         .slice(0, 2);
     }
   },
+  watch: {
+    isAuthenticated(val) {
+      if (val) {
+        this.startPolling();
+      } else {
+        this.stopPolling();
+        this.notifications = [];
+        this.unreadCount = 0;
+      }
+    }
+  },
+  mounted() {
+    if (this.isAuthenticated) {
+      this.startPolling();
+    }
+    document.addEventListener('click', this.handleOutsideClick);
+  },
+  beforeUnmount() {
+    this.stopPolling();
+    document.removeEventListener('click', this.handleOutsideClick);
+  },
   methods: {
     ...mapActions(['logout']),
     handleLogout() {
       this.logout();
-    }
+    },
+    async fetchNotifications() {
+      try {
+        const [listRes, countRes] = await Promise.all([
+          kpiAPI.getNotifications(),
+          kpiAPI.getUnreadCount(),
+        ]);
+        this.notifications = listRes.data.slice(0, 20);
+        this.unreadCount = countRes.data.count;
+      } catch (e) {
+        // Игнорируем ошибки поллинга
+      }
+    },
+    startPolling() {
+      this.fetchNotifications();
+      this.pollInterval = setInterval(this.fetchNotifications, 30000);
+    },
+    stopPolling() {
+      if (this.pollInterval) {
+        clearInterval(this.pollInterval);
+        this.pollInterval = null;
+      }
+    },
+    toggleNotifications() {
+      this.showNotifications = !this.showNotifications;
+    },
+    handleOutsideClick(e) {
+      if (this.$refs.bellRef && !this.$refs.bellRef.contains(e.target)) {
+        this.showNotifications = false;
+      }
+    },
+    async handleMarkRead(notif) {
+      if (!notif.is_read) {
+        await kpiAPI.markNotificationRead(notif.id);
+        notif.is_read = true;
+        this.unreadCount = Math.max(0, this.unreadCount - 1);
+      }
+    },
+    async handleMarkAllRead() {
+      await kpiAPI.markAllRead();
+      this.notifications.forEach(n => { n.is_read = true; });
+      this.unreadCount = 0;
+    },
+    notifIcon(type) {
+      if (type === 'submitted') return '📋';
+      if (type === 'approved') return '✅';
+      if (type === 'rejected') return '❌';
+      return '🔔';
+    },
+    formatTime(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    },
   }
 }
 </script>
@@ -155,5 +276,112 @@ body {
 .navigation .admin-link:hover {
   opacity: 0.9;
   color: white !important;
+}
+
+/* Уведомления */
+.notification-bell {
+  position: relative;
+}
+.bell-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  position: relative;
+  font-size: 1.3rem;
+  line-height: 1;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+.bell-button:hover {
+  background: #f0f0f0;
+}
+.bell-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: #dc3545;
+  color: white;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+.notification-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  z-index: 1000;
+  overflow: hidden;
+}
+.notification-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.read-all-btn {
+  background: none;
+  border: none;
+  color: #007bff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0;
+}
+.read-all-btn:hover { text-decoration: underline; }
+.notification-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.notification-item {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f5f5f5;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.notification-item:hover { background: #f8f9fa; }
+.notification-item.unread { background: #f0f7ff; }
+.notification-item.unread:hover { background: #e6f2ff; }
+.notif-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.notif-body { flex: 1; min-width: 0; }
+.notif-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 3px;
+}
+.notif-message {
+  font-size: 0.8rem;
+  color: #555;
+  white-space: normal;
+  word-break: break-word;
+}
+.notif-time {
+  font-size: 0.72rem;
+  color: #aaa;
+  margin-top: 4px;
+}
+.notification-empty {
+  padding: 24px;
+  text-align: center;
+  color: #aaa;
+  font-size: 0.85rem;
 }
 </style>

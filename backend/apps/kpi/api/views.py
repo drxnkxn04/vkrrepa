@@ -12,13 +12,24 @@ from django.utils import timezone
 from datetime import datetime
 import logging
 
-from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation
+from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, Notification
 from ..serializers import (
     KpiGroupSerializer,
     KpiIndicatorSerializer,
     KpiValueSerializer,
-    KpiRecommendationSerializer
+    KpiRecommendationSerializer,
+    NotificationSerializer,
 )
+
+
+def _create_notification(recipient, notification_type, title, message, kpi_value=None):
+    Notification.objects.create(
+        recipient=recipient,
+        notification_type=notification_type,
+        title=title,
+        message=message,
+        kpi_value=kpi_value,
+    )
 from ..services import KpiCalculator, KpiReportGenerator
 
 
@@ -122,6 +133,16 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             'status', 'submitted_at', 'reviewer', 'reviewed_at', 'review_comment', 'is_verified'
         ])
 
+        submitter_name = obj.user.get_full_name() or obj.user.username
+        for staff_user in User.objects.filter(is_staff=True, is_active=True):
+            _create_notification(
+                recipient=staff_user,
+                notification_type=Notification.TYPE_SUBMITTED,
+                title='Новый KPI на проверку',
+                message=f'{submitter_name} подал(а) KPI "{obj.indicator.name}" за {obj.period} на проверку.',
+                kpi_value=obj,
+            )
+
         return Response(KpiValueSerializer(obj).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
@@ -142,6 +163,15 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         obj.save(update_fields=[
             'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
         ])
+
+        reviewer_name = request.user.get_full_name() or request.user.username
+        _create_notification(
+            recipient=obj.user,
+            notification_type=Notification.TYPE_APPROVED,
+            title='KPI одобрен',
+            message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} одобрен руководителем {reviewer_name}.',
+            kpi_value=obj,
+        )
 
         return Response(KpiValueSerializer(obj).data)
 
@@ -164,6 +194,16 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
         ])
 
+        reviewer_name = request.user.get_full_name() or request.user.username
+        comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment else ''
+        _create_notification(
+            recipient=obj.user,
+            notification_type=Notification.TYPE_REJECTED,
+            title='KPI отклонён',
+            message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} отклонён руководителем {reviewer_name}.{comment_text}',
+            kpi_value=obj,
+        )
+
         return Response(KpiValueSerializer(obj).data)
 
     @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
@@ -175,7 +215,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         period = request.query_params.get('period')
         if period:
             qs = qs.filter(period=period)
-        return Response(KpiValueSerializer(qs, many=True).data)
+        return Response(KpiValueSerializer(qs, many=True, context={'request': request}).data)
 
     @action(detail=False, methods=['get'])
     def dashboard(self, request):
@@ -439,6 +479,60 @@ class GenerateUserReportView(APIView):
             )
 
 
+class GenerateExcelReportView(APIView):
+    """Генерация Excel-отчета для текущего пользователя. GET /api/kpi/reports/generate-excel/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        period = request.query_params.get('period')
+        if not period:
+            return Response({'error': 'Необходимо указать параметр period'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            generator = KpiReportGenerator()
+            buffer = generator.generate_excel_response(request.user.id, period)
+            filename = f"KPI_Report_{request.user.username}_{period}.xlsx"
+            response = HttpResponse(
+                buffer,
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+        except Exception as e:
+            logger.error(f"Ошибка генерации Excel для {request.user.username}: {str(e)}")
+            return Response({'error': 'Не удалось сгенерировать отчет'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GenerateUserExcelReportView(APIView):
+    """Генерация Excel-отчета для выбранного сотрудника (admin). GET /api/kpi/reports/generate-excel/<user_id>/"""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, user_id, *args, **kwargs):
+        period = request.query_params.get('period')
+        if not period:
+            return Response({'error': 'Необходимо указать параметр period'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'Пользователь не найден'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            generator = KpiReportGenerator()
+            buffer = generator.generate_excel_response(target_user.id, period)
+            filename = f"KPI_Report_{target_user.username}_{period}.xlsx"
+            response = HttpResponse(
+                buffer,
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+        except Exception as e:
+            logger.error(f"Ошибка генерации Excel для {target_user.username}: {str(e)}")
+            return Response({'error': 'Не удалось сгенерировать отчет'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet для работы с рекомендациями (только чтение).
@@ -527,3 +621,35 @@ class TopPerformersView(APIView):
             )
 
 
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet для уведомлений текущего пользователя.
+
+    Endpoints:
+    - GET /api/kpi/notifications/ - список уведомлений
+    - GET /api/kpi/notifications/unread_count/ - количество непрочитанных
+    - POST /api/kpi/notifications/{id}/read/ - отметить как прочитанное
+    - POST /api/kpi/notifications/read_all/ - отметить все как прочитанные
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(recipient=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def read(self, request, pk=None):
+        notif = self.get_object()
+        notif.is_read = True
+        notif.save(update_fields=['is_read'])
+        return Response({'status': 'ok'})
+
+    @action(detail=False, methods=['post'])
+    def read_all(self, request):
+        Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response({'status': 'ok'})
+
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+        return Response({'count': count})

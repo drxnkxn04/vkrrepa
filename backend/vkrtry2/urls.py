@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
+from django.conf import settings
+from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenRefreshView
 from apps.kpi.jwt_serializer import CustomTokenObtainPairSerializer  # НОВЫЙ ИМПОРТ
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -19,4 +21,4 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     path('api/kpi/', include('apps.kpi.urls')),
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
