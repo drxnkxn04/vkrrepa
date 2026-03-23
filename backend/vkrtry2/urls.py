@@ -3,13 +3,18 @@ from django.urls import path, include
 from django.views.generic import RedirectView
 from django.conf import settings
 from django.conf.urls.static import static
-from rest_framework_simplejwt.views import TokenRefreshView
-from apps.kpi.jwt_serializer import CustomTokenObtainPairSerializer  # НОВЫЙ ИМПОРТ
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.throttling import AnonRateThrottle
+from rest_framework_simplejwt.views import TokenRefreshView, TokenObtainPairView
+from apps.kpi.jwt_serializer import CustomTokenObtainPairSerializer
 
-# Кастомный view с нашим serializer
+
+class LoginRateThrottle(AnonRateThrottle):
+    rate = '5/minute'
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    throttle_classes = [LoginRateThrottle]
 
 urlpatterns = [
     path('', RedirectView.as_view(url='/api/kpi/', permanent=False)),

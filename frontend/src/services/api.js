@@ -306,4 +306,15 @@ export const downloadPDF = (blob, filename) => {
   window.URL.revokeObjectURL(url);
 };
 
+/**
+ * Извлекает массив данных из ответа API (поддержка пагинации DRF).
+ * Если ответ пагинированный ({results: [...]}), возвращает results.
+ * Если ответ — массив, возвращает его напрямую.
+ */
+export const extractResults = (data) => {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.results)) return data.results;
+  return [];
+};
+
 export default apiClient;

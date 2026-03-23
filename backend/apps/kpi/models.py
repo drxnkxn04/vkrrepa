@@ -238,3 +238,18 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"Профиль {self.user.username}"
+
+
+def get_user_kpi_role(user) -> str:
+    """
+    Определяет KPI-роль пользователя.
+    is_staff → РОП, обычный пользователь → ППС.
+    Если в профиле явно выбрана роль РОП для обычного пользователя — уважаем выбор.
+    """
+    profile = getattr(user, 'profile', None)
+    if user.is_staff:
+        # Руководитель — всегда РОП
+        return KpiGroup.ROLE_ROP
+    if profile and profile.role:
+        return profile.role
+    return KpiGroup.ROLE_PPS

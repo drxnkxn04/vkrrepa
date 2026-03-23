@@ -19,7 +19,7 @@ from apps.integrations.services.crossref_service import (
     CrossrefTimeoutError,
     CrossrefValidationError,
 )
-from apps.kpi.models import KpiIndicator, KpiValue
+from apps.kpi.models import KpiIndicator, KpiValue, get_user_kpi_role
 
 logger = logging.getLogger(__name__)
 
@@ -247,8 +247,7 @@ class CrossrefSyncView(APIView):
         # Базовый queryset с фильтром по роли
         base_qs = KpiIndicator.objects.filter(data_source='api')
         if user:
-            profile = getattr(user, 'profile', None)
-            user_role = profile.role if profile and profile.role else ('rop' if user.is_staff else 'pps')
+            user_role = get_user_kpi_role(user)
             base_qs = base_qs.filter(group__role=user_role)
 
         # Журнальные публикации

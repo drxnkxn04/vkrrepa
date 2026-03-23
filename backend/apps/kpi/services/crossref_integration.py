@@ -6,7 +6,7 @@ from django.utils import timezone
 from datetime import datetime
 import logging
 
-from ..models import KpiIndicator, KpiValue
+from ..models import KpiIndicator, KpiValue, get_user_kpi_role
 from ...integrations.services.crossref_service import CrossrefAPIService
 
 User = get_user_model()
@@ -157,8 +157,7 @@ class CrossrefKpiIntegration:
             name__icontains='публикаци'
         )
         if user:
-            profile = getattr(user, 'profile', None)
-            user_role = profile.role if profile and profile.role else ('rop' if user.is_staff else 'pps')
+            user_role = get_user_kpi_role(user)
             qs = qs.filter(group__role=user_role)
         return qs
 

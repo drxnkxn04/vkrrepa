@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from django.contrib.auth import get_user_model
+from apps.kpi.models import get_user_kpi_role
 
 User = get_user_model()
 
@@ -36,8 +37,8 @@ class UserProfileView(APIView):
             'orcid': profile.orcid if profile else None,
             'department': profile.department if profile else '',
             'position': profile.position if profile else '',
-            'role': profile.role if profile else 'pps',
-            'role_display': profile.get_role_display() if profile else 'ППС (преподаватель)',
+            'role': get_user_kpi_role(user),
+            'role_display': 'РОП (руководитель)' if get_user_kpi_role(user) == 'rop' else 'ППС (преподаватель)',
         })
 
     def patch(self, request, *args, **kwargs):

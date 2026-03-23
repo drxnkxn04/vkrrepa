@@ -105,8 +105,12 @@ WSGI_APPLICATION = 'vkrtry2.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME', 'kpi_db'),
+        'USER': os.getenv('DB_USER', 'postgres'),
+        'PASSWORD': os.getenv('DB_PASSWORD', '12345'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
     }
 }
 
@@ -139,6 +143,31 @@ CELERY_TIMEZONE = 'Europe/Moscow'
 CELERY_ENABLE_UTC = True
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 минут
+
+# ============================================================================
+# КЭШИРОВАНИЕ
+# ============================================================================
+CACHE_BACKEND_URL = os.getenv('CACHE_URL', '')
+
+if CACHE_BACKEND_URL:
+    # Продакшен: Redis
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': CACHE_BACKEND_URL,
+        }
+    }
+else:
+    # Разработка: локальная память
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'kpi-cache',
+        }
+    }
+
+# Время жизни кэша дашборда (в секундах)
+KPI_CACHE_TTL = int(os.getenv('KPI_CACHE_TTL', '300'))  # 5 минут
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
@@ -181,14 +210,25 @@ if IS_PRODUCTION and CORS_ALLOW_ALL_ORIGINS:
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '20/minute',
+        'user': '120/minute',
+        'login': '5/minute',
+    },
 }
 
 # (Опционально) Настройки для Simple JWT (например, время жизни токенов)
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "TOKEN_OBTAIN_SERIALIZER": "apps.kpi.jwt_serializer.CustomTokenObtainPairSerializer",  # НОВОЕ
 }

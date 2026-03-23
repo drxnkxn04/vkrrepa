@@ -4,7 +4,7 @@ from rest_framework import viewsets, status, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from django.http import HttpResponse
 from django.contrib.auth import get_user_model
@@ -12,7 +12,7 @@ from django.utils import timezone
 from datetime import datetime
 import logging
 
-from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, Notification
+from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, Notification, get_user_kpi_role
 from ..serializers import (
     KpiGroupSerializer,
     KpiIndicatorSerializer,
@@ -30,6 +30,7 @@ def _create_notification(recipient, notification_type, title, message, kpi_value
         message=message,
         kpi_value=kpi_value,
     )
+from ..permissions import IsOwnerOrAdmin
 from ..services import KpiCalculator, KpiReportGenerator
 
 
@@ -53,7 +54,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
     - GET /api/kpi/values/periods/ - доступные периоды
     """
     serializer_class = KpiValueSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwnerOrAdmin]
 
     def get_queryset(self):
         """Return KPI values with access scope."""
@@ -78,7 +79,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         if period:
             qs = qs.filter(period=period)
 
-        return qs
+        return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
         """Auto-attach user and set draft status."""
@@ -280,7 +281,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             count += 1
         return Response({'rejected': count})
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], pagination_class=None)
     def dashboard(self, request):
         """
         Получение данных для дашборда пользователя.
@@ -308,7 +309,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], pagination_class=None)
     def history(self, request):
         """
         Получение истории KPI за последние N месяцев.
@@ -333,7 +334,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], pagination_class=None)
     def recommendations(self, request):
         """
         Получение персонализированных рекомендаций.
@@ -358,7 +359,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], pagination_class=None)
     def periods(self, request):
         """
         Получение списка доступных периодов с данными.
@@ -396,20 +397,14 @@ class ManualKpiIndicatorListView(generics.ListAPIView):
     """
     serializer_class = KpiIndicatorSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         qs = KpiIndicator.objects.filter(
             data_source='manual'
         ).select_related('group')
 
-        # Фильтрация по роли пользователя
-        user = self.request.user
-        profile = getattr(user, 'profile', None)
-        if profile and profile.role:
-            user_role = profile.role
-        else:
-            user_role = 'rop' if user.is_staff else 'pps'
-
+        user_role = get_user_kpi_role(self.request.user)
         qs = qs.filter(group__role=user_role)
         return qs.order_by('group__order', 'order')
 
@@ -645,38 +640,24 @@ class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
         """Отметить рекомендацию как выполненную."""
-        try:
-            recommendation = self.get_object()
-            recommendation.is_completed = True
-            recommendation.save(update_fields=['is_completed', 'updated_at'])
-            return Response({
-                'message': 'Рекомендация отмечена как выполненная',
-                'id': recommendation.id,
-            })
-        except Exception as e:
-            logger.error(f"Ошибка отметки рекомендации: {str(e)}")
-            return Response(
-                {'error': 'Не удалось обновить рекомендацию'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        recommendation = self.get_object()
+        recommendation.is_completed = True
+        recommendation.save(update_fields=['is_completed', 'updated_at'])
+        return Response({
+            'message': 'Рекомендация отмечена как выполненная',
+            'id': recommendation.id,
+        })
 
     @action(detail=True, methods=['post'])
     def uncomplete(self, request, pk=None):
         """Вернуть рекомендацию в активные."""
-        try:
-            recommendation = self.get_object()
-            recommendation.is_completed = False
-            recommendation.save(update_fields=['is_completed', 'updated_at'])
-            return Response({
-                'message': 'Рекомендация возвращена в активные',
-                'id': recommendation.id,
-            })
-        except Exception as e:
-            logger.error(f"Ошибка отметки рекомендации: {str(e)}")
-            return Response(
-                {'error': 'Не удалось обновить рекомендацию'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        recommendation = self.get_object()
+        recommendation.is_completed = False
+        recommendation.save(update_fields=['is_completed', 'updated_at'])
+        return Response({
+            'message': 'Рекомендация возвращена в активные',
+            'id': recommendation.id,
+        })
 
 
 class KpiGroupListView(generics.ListAPIView):
@@ -687,15 +668,10 @@ class KpiGroupListView(generics.ListAPIView):
     """
     serializer_class = KpiGroupSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
-        user = self.request.user
-        profile = getattr(user, 'profile', None)
-        if profile and profile.role:
-            user_role = profile.role
-        else:
-            user_role = 'rop' if user.is_staff else 'pps'
-
+        user_role = get_user_kpi_role(self.request.user)
         return KpiGroup.objects.filter(
             role=user_role
         ).prefetch_related('indicators').order_by('order')
@@ -776,6 +752,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         return Notification.objects.filter(recipient=self.request.user)

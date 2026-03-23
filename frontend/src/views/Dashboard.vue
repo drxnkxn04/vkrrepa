@@ -252,7 +252,7 @@
 <script>
 import LineChart from '@/components/charts/LineChart.vue';
 import DataInputModal from '@/components/DataInputModal.vue';
-import { kpiAPI, downloadPDF } from '@/services/api';
+import { kpiAPI, downloadPDF, extractResults } from '@/services/api';
 
 export default {
   name: 'DashboardView',
@@ -416,7 +416,7 @@ export default {
       this.valuesLoading = true;
       try {
         const response = await kpiAPI.getValuesByParams({ period: this.selectedPeriod });
-        this.values = Array.isArray(response.data) ? response.data : [];
+        this.values = extractResults(response.data);
       } catch (error) {
         console.error('Ошибка загрузки значений KPI:', error);
         this.values = [];

@@ -1,5 +1,7 @@
 # backend/apps/kpi/services/kpi_calculator.py
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Sum, Avg, Count, Q, F
 from django.contrib.auth import get_user_model
 from decimal import Decimal
@@ -7,7 +9,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, UserProfile
+from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, UserProfile, get_user_kpi_role
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -33,24 +35,28 @@ class KpiCalculator:
         'низкий': 0.0,
     }
 
-    # Коэффициенты из Excel: +15% высокий, -50% низкий
     BONUS_COEFFICIENTS = {
         'высокий': 0.15,
         'средний': 0.00,
-        'низкий': -0.50,
+        'низкий': 0.00,
     }
 
     BASE_SALARY = 50000.0
+    CACHE_TTL = getattr(settings, 'KPI_CACHE_TTL', 300)
+
+    @staticmethod
+    def _cache_key(prefix: str, user_id: int, period: str) -> str:
+        return f'kpi:{prefix}:{user_id}:{period}'
+
+    @staticmethod
+    def invalidate_cache(user_id: int, period: str):
+        """Сброс кэша для пользователя и периода."""
+        cache.delete(KpiCalculator._cache_key('score', user_id, period))
+        cache.delete(KpiCalculator._cache_key('dashboard', user_id, period))
 
     def _get_user_role(self, user) -> str:
         """Определяет роль пользователя (pps или rop)."""
-        profile = getattr(user, 'profile', None)
-        if profile and profile.role:
-            return profile.role
-        # По умолчанию ППС, руководители — is_staff
-        if user.is_staff:
-            return KpiGroup.ROLE_ROP
-        return KpiGroup.ROLE_PPS
+        return get_user_kpi_role(user)
 
     def _get_groups_for_user(self, user) -> 'QuerySet':
         """Возвращает группы KPI для роли пользователя."""
@@ -69,6 +75,11 @@ class KpiCalculator:
             Dict: total_score (0-100), total_points, max_points,
                   performance_level, bonus_amount, group_scores
         """
+        cache_key = self._cache_key('score', user_id, period)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
@@ -105,7 +116,7 @@ class KpiCalculator:
         # Проверка минимальных порогов
         threshold_warnings = self._check_thresholds(group_scores, kpi_groups)
 
-        return {
+        result = {
             'total_score': round(total_score, 2),
             'total_points': round(total_points, 1),
             'max_points': round(max_points, 1),
@@ -115,6 +126,9 @@ class KpiCalculator:
             'threshold_warnings': threshold_warnings,
             'user_role': self._get_user_role(user),
         }
+
+        cache.set(cache_key, result, self.CACHE_TTL)
+        return result
 
     def _calculate_group_score(self, user_id: int, group: KpiGroup, period: str) -> Dict:
         """Расчет балла для группы показателей."""
@@ -203,17 +217,29 @@ class KpiCalculator:
         }
 
     def _check_thresholds(self, group_scores: Dict, kpi_groups) -> List[Dict]:
-        """Проверка минимальных порогов по группам."""
+        """Проверка минимальных порогов по группам.
+
+        Показывает предупреждение только если:
+        - У пользователя есть хоть какие-то баллы (не пустой период)
+        - Дефицит больше 10% от порога (игнорирует мелкие отклонения)
+        """
+        # Если у пользователя вообще нет данных — не показываем предупреждения
+        total_points = sum(gs['points'] for gs in group_scores.values())
+        if total_points == 0:
+            return []
+
         warnings = []
         for group in kpi_groups:
             gs = group_scores.get(group.id)
             if gs and group.min_threshold > 0:
-                if gs['points'] < group.min_threshold:
+                deficit = group.min_threshold - gs['points']
+                # Показываем только если дефицит > 10% от порога
+                if deficit > group.min_threshold * 0.10:
                     warnings.append({
                         'group_name': group.name,
                         'current_points': gs['points'],
                         'min_threshold': group.min_threshold,
-                        'deficit': round(group.min_threshold - gs['points'], 1),
+                        'deficit': round(deficit, 1),
                     })
         return warnings
 
@@ -228,15 +254,19 @@ class KpiCalculator:
     def _calculate_bonus(self, total_score: float) -> float:
         """
         Расчет премиальной выплаты.
-        +15% при высоком, 0% при среднем, -50% при низком.
+        +15% при высоком, 0% при среднем и низком.
         """
         performance_level = self._determine_performance_level(total_score)
         bonus_coefficient = self.BONUS_COEFFICIENTS[performance_level]
-        bonus_amount = self.BASE_SALARY * bonus_coefficient
-        return round(bonus_amount, 2)
+        return max(round(self.BASE_SALARY * bonus_coefficient, 2), 0.0)
 
     def calculate_dashboard(self, user_id: int, period: str) -> Dict:
         """Генерация полных данных для дашборда пользователя."""
+        cache_key = self._cache_key('dashboard', user_id, period)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         result = self.calculate_total_score(user_id, period)
 
         dashboard_data = {
@@ -251,6 +281,7 @@ class KpiCalculator:
             'period': period,
         }
 
+        cache.set(cache_key, dashboard_data, self.CACHE_TTL)
         return dashboard_data
 
     def generate_recommendations(self, user_id: int, period: str) -> List[Dict]:

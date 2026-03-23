@@ -100,7 +100,7 @@ class KpiCalculatorTestCase(TestCase):
 
         self.assertEqual(result['total_score'], 0.0)
         self.assertEqual(result['performance_level'], 'низкий')
-        self.assertEqual(result['bonus_amount'], -25000.0)  # -50% при низком уровне
+        self.assertEqual(result['bonus_amount'], 0.0)  # 0% при низком уровне
 
     def test_calculate_total_score_perfect(self):
         """Тест расчета KPI при 100% выполнении всех показателей."""
@@ -247,9 +247,9 @@ class KpiCalculatorTestCase(TestCase):
         bonus_medium = self.calculator._calculate_bonus(75.0)
         self.assertEqual(bonus_medium, 0.0)  # 50000 * 0.00
 
-        # Низкий уровень - -50% (штраф)
+        # Низкий уровень - 0% (без премии)
         bonus_low = self.calculator._calculate_bonus(50.0)
-        self.assertEqual(bonus_low, -25000.0)  # 50000 * -0.50
+        self.assertEqual(bonus_low, 0.0)
 
     def test_generate_recommendations_low_performance(self):
         """Тест генерации рекомендаций для показателей с низким выполнением."""

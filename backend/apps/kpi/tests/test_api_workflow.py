@@ -236,8 +236,9 @@ class KpiWorkflowAPITestCase(APITestCase):
 
         response = self.user_client.get(reverse('kpivalue-list'), {'period': '2025-11'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['period'], '2025-11')
+        results = response.data.get('results', response.data)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['period'], '2025-11')
 
     def test_admin_can_generate_report_for_selected_user(self):
         response = self.admin_client.get(

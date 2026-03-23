@@ -403,7 +403,7 @@
 </template>
 
 <script>
-import { kpiAPI, downloadPDF } from '@/services/api';
+import { kpiAPI, downloadPDF, extractResults } from '@/services/api';
 
 export default {
   name: 'ManagerDashboardView',
@@ -542,7 +542,7 @@ export default {
       this.pendingLoading = true;
       try {
         const response = await kpiAPI.getPendingValues(this.selectedPeriod);
-        this.pendingValues = Array.isArray(response.data) ? response.data : [];
+        this.pendingValues = extractResults(response.data);
       } catch (error) {
         console.error('Ошибка загрузки на проверке:', error);
         this.pendingValues = [];
@@ -684,7 +684,7 @@ export default {
           user_id: userId,
           period: this.selectedPeriod,
         });
-        this.selectedUserValues = Array.isArray(response.data) ? response.data : [];
+        this.selectedUserValues = extractResults(response.data);
       } catch (error) {
         console.error('Failed to load user details:', error);
         this.$toast.error('Не удалось загрузить детали');
