@@ -176,7 +176,7 @@ export default {
     async loadPeriods() {
       try {
         const response = await kpiAPI.getPeriods();
-        this.periods = response.data.periods || [];
+        this.periods = Array.isArray(response.data) ? response.data : [];
         if (this.periods.length > 0 && !this.selectedPeriod) {
           this.selectedPeriod = this.periods[0];
         }
@@ -465,24 +465,8 @@ export default {
   gap: 8px;
 }
 
-/* Buttons */
-.btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.88rem;
-  transition: all 0.15s;
-}
-
-.btn:hover:not(:disabled) { filter: brightness(0.95); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-sm { padding: 6px 14px; font-size: 0.82rem; }
+/* Кнопки — глобальные стили в App.vue */
 .btn-success { background: #10b981; color: white; }
-.btn-outline { background: white; border: 1px solid #d1d5db; color: #374151; }
-.btn-outline:hover { background: #f9fafb; }
 
 /* States */
 .loading-state {

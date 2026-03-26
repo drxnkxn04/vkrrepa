@@ -113,12 +113,6 @@ router.beforeEach((to, from, next) => {
   const isAuthenticated = store.getters.isAuthenticated;
   const isAdmin = store.getters.isAdmin;
 
-  console.log('Debug auth:', {
-    isAuthenticated,
-    isAdmin,
-    user: store.state.user
-  });
-  
   // Если маршрут требует аутентификации
   if (requiresAuth) {
     if (!isAuthenticated) {
@@ -129,7 +123,8 @@ router.beforeEach((to, from, next) => {
       });
     } else if (requiresAdmin && !isAdmin) {
       // Пользователь авторизован, но не админ
-      console.warn('Access denied: Admin rights required');
+
+
       next({ name: 'Dashboard' }); // Перенаправляем на главную
     } else {
       // Все проверки пройдены

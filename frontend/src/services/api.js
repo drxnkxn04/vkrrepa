@@ -167,6 +167,10 @@ export const kpiAPI = {
     return apiClient.post(`/kpi/values/${id}/reject/`, { review_comment });
   },
 
+  getValueLogs(id) {
+    return apiClient.get(`/kpi/values/${id}/logs/`);
+  },
+
   getPendingValues(period) {
     return apiClient.get('/kpi/values/pending/', {
       params: period ? { period } : {},
@@ -202,6 +206,22 @@ export const kpiAPI = {
   
   updateProfile(data) {
     return apiClient.patch('/kpi/profile/', data);
+  },
+
+  changePassword(data) {
+    return apiClient.post('/kpi/profile/change-password/', data);
+  },
+
+  uploadAvatar(file) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return apiClient.post('/kpi/profile/avatar/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  deleteAvatar() {
+    return apiClient.delete('/kpi/profile/avatar/');
   },
   
   // === Отчеты ===
@@ -281,9 +301,9 @@ export const kpiAPI = {
   },
 
   // === Для руководителей ===
-  getManagerDashboard(period) {
+  getManagerDashboard(period, role = 'pps') {
     return apiClient.get('/kpi/manager-dashboard/', {
-      params: { period },
+      params: { period, role },
     });
   },
   

@@ -115,6 +115,43 @@ class KpiValue(models.Model):
         return f"{self.user} - {self.indicator} ({self.period})"
 
 
+class KpiValueLog(models.Model):
+    """Аудит-лог изменений KPI записей"""
+    ACTION_CREATED = 'created'
+    ACTION_UPDATED = 'updated'
+    ACTION_SUBMITTED = 'submitted'
+    ACTION_APPROVED = 'approved'
+    ACTION_REJECTED = 'rejected'
+
+    ACTION_CHOICES = (
+        (ACTION_CREATED, 'Создано'),
+        (ACTION_UPDATED, 'Изменено'),
+        (ACTION_SUBMITTED, 'Отправлено на проверку'),
+        (ACTION_APPROVED, 'Одобрено'),
+        (ACTION_REJECTED, 'Отклонено'),
+    )
+
+    kpi_value = models.ForeignKey(
+        KpiValue, on_delete=models.CASCADE, related_name='logs'
+    )
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    actor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name='kpi_audit_actions'
+    )
+    comment = models.TextField(blank=True)
+    old_value = models.FloatField(null=True, blank=True, verbose_name='Старое значение')
+    new_value = models.FloatField(null=True, blank=True, verbose_name='Новое значение')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Лог изменения KPI'
+        verbose_name_plural = 'Логи изменений KPI'
+
+    def __str__(self):
+        return f"{self.kpi_value} — {self.get_action_display()} ({self.created_at:%d.%m.%Y %H:%M})"
+
+
 class KpiRecommendation(models.Model):
     """Рекомендации по улучшению KPI"""
     PRIORITY_HIGH = 'high'
@@ -215,6 +252,12 @@ class UserProfile(models.Model):
                 message='Неверный формат ORCID. Ожидается: 0000-0000-0000-0000'
             )
         ]
+    )
+    avatar = models.ImageField(
+        upload_to='avatars/',
+        blank=True,
+        null=True,
+        verbose_name='Аватар'
     )
     department = models.CharField(
         max_length=200,

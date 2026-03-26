@@ -200,17 +200,16 @@ export default {
           }
           this.$toast.success('Данные успешно обновлены!');
         } else {
-          const submissionData = new FormData();
-          submissionData.append('indicator_id', this.formData.indicator_id);
-          submissionData.append('period', this.formData.period);
-          submissionData.append('actual_value', this.formData.actual_value);
-          submissionData.append('comment', this.formData.comment);
+          const submissionData = {
+            indicator_id: this.formData.indicator_id,
+            period: this.formData.period,
+            actual_value: this.formData.actual_value,
+            comment: this.formData.comment,
+          };
           if (this.selectedFile) {
-            submissionData.append('evidence', this.selectedFile);
+            submissionData.evidence = this.selectedFile;
           }
-          await this.$api.post('/kpi/values/', submissionData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-          });
+          await kpiAPI.createValue(submissionData);
           this.$toast.success('Данные успешно сохранены!');
         }
 
@@ -344,10 +343,6 @@ textarea { resize: vertical; min-height: 80px; }
   justify-content: flex-end;
   gap: 10px;
 }
-.btn { padding: 9px 20px; border-radius: 7px; border: none; cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; }
-.btn-primary { background: #007bff; color: white; }
-.btn-primary:hover { background: #0069d9; }
-.btn-primary:disabled { background: #a0c4f1; cursor: not-allowed; }
-.btn-outline { background: transparent; border: 1.5px solid #dee2e6; color: #555; }
-.btn-outline:hover { background: #f8f9fa; }
+/* Кнопки — глобальные стили в App.vue */
+.btn-primary:disabled { background: #a0c4f1; }
 </style>

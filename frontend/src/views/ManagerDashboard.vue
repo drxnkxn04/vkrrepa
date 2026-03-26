@@ -9,6 +9,20 @@
             {{ formatPeriod(period) }}
           </option>
         </select>
+        <div class="role-tabs">
+          <button
+            :class="['role-tab', { active: roleFilter === 'pps' }]"
+            @click="setRoleFilter('pps')"
+          >ППС</button>
+          <button
+            :class="['role-tab', { active: roleFilter === 'rop' }]"
+            @click="setRoleFilter('rop')"
+          >РОП</button>
+          <button
+            :class="['role-tab', { active: roleFilter === 'all' }]"
+            @click="setRoleFilter('all')"
+          >Все</button>
+        </div>
         <button @click="exportData" class="btn btn-secondary">
           📊 Экспорт
         </button>
@@ -364,11 +378,34 @@
     <div v-if="showUserDetails" class="modal-backdrop" @click.self="closeUserDetails">
       <div class="modal-card">
         <div class="modal-header">
-          <h3>
-            Детали KPI:
-            {{ selectedUser?.full_name || selectedUser?.username || 'Сотрудник' }}
-          </h3>
-          <button class="btn-icon" @click="closeUserDetails" title="Закрыть">x</button>
+          <h3>{{ selectedUser?.full_name || selectedUser?.username || 'Сотрудник' }}</h3>
+          <button class="close-button" @click="closeUserDetails" title="Закрыть">&times;</button>
+        </div>
+
+        <!-- Сводка по сотруднику -->
+        <div v-if="selectedUser" class="user-summary">
+          <div class="summary-item">
+            <span class="summary-label">Балл KPI</span>
+            <span class="summary-value" :class="getScoreClass(selectedUser.total_score)">
+              {{ selectedUser.total_score?.toFixed(1) }}%
+            </span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Уровень</span>
+            <span class="level-badge" :class="'level-' + selectedUser.performance_level">
+              {{ formatLevel(selectedUser.performance_level) }}
+            </span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Бонус</span>
+            <span class="summary-value">{{ formatCurrency(selectedUser.bonus_amount) }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Роль</span>
+            <span class="role-tag" :class="selectedUser.user_role || 'pps'">
+              {{ selectedUser.user_role === 'rop' ? 'РОП' : 'ППС' }}
+            </span>
+          </div>
         </div>
 
         <div v-if="userDetailsLoading" class="pending-loading">Загрузка...</div>
@@ -376,41 +413,115 @@
           Нет данных за выбранный период.
         </div>
         <div v-else class="table-responsive">
-          <table class="pending-table">
+          <table class="pending-table detail-table">
             <thead>
               <tr>
                 <th>Показатель</th>
-                <th>Период</th>
-                <th>Факт</th>
-                <th>План</th>
+                <th>Факт / План</th>
+                <th>Выполнение</th>
                 <th>Статус</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="value in selectedUserValues" :key="value.id">
-                <td>{{ value.indicator?.name || '-' }}</td>
-                <td>{{ value.period }}</td>
-                <td>{{ value.actual_value }}</td>
-                <td>{{ value.target_value }}</td>
-                <td>{{ value.status || '-' }}</td>
+                <td>
+                  <div class="detail-indicator">
+                    <span class="detail-ind-name">{{ value.indicator?.name || '-' }}</span>
+                    <span class="detail-ind-group">{{ value.indicator?.group?.name || '' }}</span>
+                  </div>
+                </td>
+                <td class="detail-values">
+                  <strong>{{ value.actual_value }}</strong>
+                  <span class="detail-separator">/</span>
+                  <span class="detail-target">{{ value.target_value }}</span>
+                </td>
+                <td>
+                  <div class="detail-progress">
+                    <div class="detail-bar">
+                      <div
+                        class="detail-bar-fill"
+                        :class="getScoreClass(calcPercent(value))"
+                        :style="{ width: Math.min(calcPercent(value), 100) + '%' }"
+                      ></div>
+                    </div>
+                    <span class="detail-percent">{{ calcPercent(value).toFixed(0) }}%</span>
+                  </div>
+                </td>
+                <td>
+                  <span class="status-badge" :class="'status-' + value.status">
+                    {{ formatStatusText(value.status) }}
+                  </span>
+                </td>
+                <td>
+                  <button class="btn btn-sm btn-outline" @click="openValueLogs(value)">
+                    Лог
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
     </div>
+
+    <!-- Модалка истории изменений -->
+    <div v-if="showLogsModal" class="modal-backdrop logs-backdrop" @click.self="showLogsModal = false">
+      <div class="logs-modal">
+        <div class="logs-modal-header">
+          <h3>История изменений</h3>
+          <button class="btn-icon" @click="showLogsModal = false">x</button>
+        </div>
+        <div v-if="logsLoading" class="pending-loading">Загрузка...</div>
+        <div v-else-if="valueLogs.length === 0" class="pending-empty">Нет записей</div>
+        <div v-else class="logs-timeline">
+          <div
+            v-for="log in valueLogs"
+            :key="log.id"
+            class="log-entry"
+            :class="log.action"
+          >
+            <div class="log-dot"></div>
+            <div class="log-body">
+              <div class="log-action-text">{{ log.action_display }}</div>
+              <div class="log-meta">
+                <span>{{ log.actor_name || 'Система' }}</span>
+                <span>{{ formatLogDate(log.created_at) }}</span>
+              </div>
+              <div v-if="log.old_value != null && log.new_value != null && log.old_value !== log.new_value" class="log-values">
+                {{ log.old_value }} → {{ log.new_value }}
+              </div>
+              <div v-if="log.comment" class="log-comment">{{ log.comment }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <confirm-dialog
+      :visible="confirmDialog.visible"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :danger="confirmDialog.danger"
+      @confirm="onConfirm"
+      @cancel="confirmDialog.visible = false"
+    />
   </div>
 </template>
 
 <script>
 import { kpiAPI, downloadPDF, extractResults } from '@/services/api';
+import ConfirmDialog from '@/components/ConfirmDialog.vue';
 
 export default {
   name: 'ManagerDashboardView',
+  components: { ConfirmDialog },
   data() {
     return {
       selectedPeriod: '',
       availablePeriods: [],
+      roleFilter: 'pps',
       users: [],
       filteredUsers: [],
       loading: false,
@@ -425,7 +536,18 @@ export default {
       showUserDetails: false,
       selectedUser: null,
       selectedUserValues: [],
-      userDetailsLoading: false
+      userDetailsLoading: false,
+      showLogsModal: false,
+      valueLogs: [],
+      logsLoading: false,
+      confirmDialog: {
+        visible: false,
+        title: '',
+        message: '',
+        confirmText: 'Подтвердить',
+        danger: false,
+        action: null,
+      },
     };
   },
   computed: {
@@ -490,7 +612,7 @@ export default {
     async loadData() {
       this.loading = true;
       try {
-        const response = await kpiAPI.getManagerDashboard(this.selectedPeriod);
+        const response = await kpiAPI.getManagerDashboard(this.selectedPeriod, this.roleFilter);
         this.users = response.data.users || [];
         this.filteredUsers = [...this.users];
         this.sortUsers();
@@ -538,6 +660,10 @@ export default {
       this.selectedFilter = filter;
       this.filterUsers();
     },
+    setRoleFilter(role) {
+      this.roleFilter = role;
+      this.loadData();
+    },
     async loadPending() {
       this.pendingLoading = true;
       try {
@@ -570,18 +696,27 @@ export default {
         this.$toast.error('Не удалось подтвердить');
       }
     },
-    async bulkReject() {
+    bulkReject() {
       if (!this.selectedIds.length) return;
-      try {
-        const res = await kpiAPI.bulkReject(this.selectedIds, this.bulkComment);
-        this.$toast.success(`Отклонено: ${res.data.rejected}`);
-        this.selectedIds = [];
-        this.bulkComment = '';
-        await this.loadData();
-      } catch (error) {
-        console.error('Ошибка массового отклонения:', error);
-        this.$toast.error('Не удалось отклонить');
-      }
+      const count = this.selectedIds.length;
+      this.showConfirm({
+        title: 'Массовое отклонение',
+        message: `Вы уверены, что хотите отклонить ${count} ${count === 1 ? 'запись' : 'записей'}?`,
+        confirmText: 'Отклонить',
+        danger: true,
+        action: async () => {
+          try {
+            const res = await kpiAPI.bulkReject(this.selectedIds, this.bulkComment);
+            this.$toast.success(`Отклонено: ${res.data.rejected}`);
+            this.selectedIds = [];
+            this.bulkComment = '';
+            await this.loadData();
+          } catch (error) {
+            console.error('Ошибка массового отклонения:', error);
+            this.$toast.error('Не удалось отклонить');
+          }
+        },
+      });
     },
     async approveValue(value) {
       try {
@@ -594,20 +729,30 @@ export default {
         this.$toast.error('Не удалось подтвердить');
       }
     },
-    async rejectValue(value) {
-      try {
-        const comment = this.reviewComments[value.id] || '';
-        if (!comment) {
-          this.$toast.warning('Укажите причину отклонения');
-          return;
-        }
-        await kpiAPI.rejectValue(value.id, comment);
-        this.$toast.success('Запись отклонена');
-        await this.loadData();
-      } catch (error) {
-        console.error('Ошибка отклонения:', error);
-        this.$toast.error('Не удалось отклонить');
+    rejectValue(value) {
+      const comment = this.reviewComments[value.id] || '';
+      if (!comment) {
+        this.$toast.warning('Укажите причину отклонения');
+        return;
       }
+      const employeeName = value.user?.full_name || value.user?.username || 'сотрудника';
+      const indicatorName = value.indicator?.name || 'показатель';
+      this.showConfirm({
+        title: 'Отклонение записи',
+        message: `Отклонить "${indicatorName}" для ${employeeName}?`,
+        confirmText: 'Отклонить',
+        danger: true,
+        action: async () => {
+          try {
+            await kpiAPI.rejectValue(value.id, comment);
+            this.$toast.success('Запись отклонена');
+            await this.loadData();
+          } catch (error) {
+            console.error('Ошибка отклонения:', error);
+            this.$toast.error('Не удалось отклонить');
+          }
+        },
+      });
     },
     sortUsers() {
       const [field, order] = this.sortBy.split('-');
@@ -757,7 +902,45 @@ export default {
       this.showUserDetails = false;
       this.selectedUser = null;
       this.selectedUserValues = [];
-    }
+    },
+    calcPercent(value) {
+      if (!value.target_value || value.target_value === 0) return 0;
+      return (value.actual_value / value.target_value) * 100;
+    },
+    formatStatusText(status) {
+      const map = { draft: 'Черновик', submitted: 'На проверке', approved: 'Подтверждено', rejected: 'Отклонено' };
+      return map[status] || status || '-';
+    },
+    async openValueLogs(value) {
+      this.showLogsModal = true;
+      this.logsLoading = true;
+      this.valueLogs = [];
+      try {
+        const response = await kpiAPI.getValueLogs(value.id);
+        this.valueLogs = response.data;
+      } catch (error) {
+        console.error('Ошибка загрузки логов:', error);
+        this.$toast.error('Не удалось загрузить историю');
+      } finally {
+        this.logsLoading = false;
+      }
+    },
+    formatLogDate(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    },
+    showConfirm({ title, message, confirmText, danger, action }) {
+      this.confirmDialog = { visible: true, title, message, confirmText, danger, action };
+    },
+    async onConfirm() {
+      if (this.confirmDialog.action) {
+        await this.confirmDialog.action();
+      }
+      this.confirmDialog.visible = false;
+    },
   }
 };
 </script>
@@ -793,6 +976,38 @@ export default {
   border-radius: 4px;
   background: white;
   cursor: pointer;
+}
+
+.role-tabs {
+  display: flex;
+  border: 1.5px solid #dee2e6;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.role-tab {
+  padding: 7px 16px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: #555;
+  transition: all 0.2s;
+  border-right: 1px solid #dee2e6;
+}
+
+.role-tab:last-child {
+  border-right: none;
+}
+
+.role-tab:hover {
+  background: #f0f7ff;
+}
+
+.role-tab.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
 }
 
 /* Summary Cards */
@@ -1229,45 +1444,8 @@ export default {
   margin: 12px 0;
 }
 
-/* Buttons */
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: opacity 0.2s;
-}
-
-.btn:hover {
-  opacity: 0.9;
-}
-
-.btn-primary {
-  background: #3498db;
-  color: white;
-}
-
-.btn-secondary {
-  background: #95a5a6;
-  color: white;
-}
-
-.btn-sm {
-  padding: 6px 10px;
-  font-size: 0.85rem;
-}
-
-.btn-approve {
-  background: #27ae60;
-  color: #fff;
-  margin-right: 6px;
-}
-
-.btn-reject {
-  background: #e74c3c;
-  color: #fff;
-}
+/* Кнопки — глобальные стили в App.vue */
+.btn-approve { margin-right: 6px; }
 
 .modal-backdrop {
   position: fixed;
@@ -1295,6 +1473,122 @@ export default {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+.modal-header h3 { margin: 0; font-size: 1.15rem; }
+.close-button {
+  background: none; border: none; font-size: 1.6rem; cursor: pointer;
+  color: #aaa; padding: 0; line-height: 1;
+}
+.close-button:hover { color: #333; }
+
+/* Сводка по сотруднику */
+.user-summary {
+  display: flex;
+  gap: 24px;
+  padding: 14px 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.summary-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.summary-value {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.summary-value.excellent { color: #16a34a; }
+.summary-value.good { color: #ca8a04; }
+.summary-value.medium { color: #ea580c; }
+.summary-value.poor { color: #dc2626; }
+
+/* Таблица деталей */
+.detail-table td { vertical-align: middle; }
+.detail-indicator { display: flex; flex-direction: column; }
+.detail-ind-name { font-weight: 500; font-size: 0.9rem; }
+.detail-ind-group { font-size: 0.75rem; color: #9ca3af; margin-top: 2px; }
+.detail-values { white-space: nowrap; }
+.detail-values strong { font-size: 0.95rem; }
+.detail-separator { color: #d1d5db; margin: 0 4px; }
+.detail-target { color: #6b7280; }
+.detail-progress { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.detail-bar { flex: 1; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; }
+.detail-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+.detail-bar-fill.excellent { background: #16a34a; }
+.detail-bar-fill.good { background: #ca8a04; }
+.detail-bar-fill.medium { background: #ea580c; }
+.detail-bar-fill.poor { background: #dc2626; }
+.detail-percent { font-size: 0.82rem; font-weight: 600; color: #374151; min-width: 36px; text-align: right; }
+
+/* Лог-модалка */
+.logs-backdrop { z-index: 2000; }
+.logs-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.logs-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #e9ecef;
+}
+.logs-modal-header h3 { margin: 0; font-size: 1.1rem; }
+.logs-timeline {
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+.log-entry {
+  display: flex;
+  gap: 14px;
+  padding: 12px 0;
+  border-left: 2px solid #e5e7eb;
+  margin-left: 8px;
+  padding-left: 20px;
+  position: relative;
+}
+.log-entry:last-child { border-left-color: transparent; }
+.log-dot {
+  position: absolute;
+  left: -7px;
+  top: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #d1d5db;
+  border: 2px solid white;
+}
+.log-entry.created .log-dot { background: #3b82f6; }
+.log-entry.submitted .log-dot { background: #f59e0b; }
+.log-entry.approved .log-dot { background: #10b981; }
+.log-entry.rejected .log-dot { background: #ef4444; }
+.log-entry.updated .log-dot { background: #8b5cf6; }
+.log-body { flex: 1; }
+.log-action-text { font-weight: 600; font-size: 0.92rem; color: #1f2937; margin-bottom: 4px; }
+.log-meta { display: flex; gap: 12px; font-size: 0.8rem; color: #6b7280; }
+.log-values {
+  margin-top: 6px; font-size: 0.85rem; color: #4b5563;
+  background: #f9fafb; padding: 4px 10px; border-radius: 4px; display: inline-block;
+}
+.log-comment {
+  margin-top: 6px; font-size: 0.85rem; color: #6b7280;
+  font-style: italic; background: #fef3c7; padding: 6px 10px; border-radius: 4px;
 }
 </style>
 

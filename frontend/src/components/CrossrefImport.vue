@@ -805,28 +805,9 @@ export default {
   to { transform: rotate(360deg); }
 }
 
-/* Buttons */
-.btn {
-  padding: 9px 18px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.btn:hover:not(:disabled) { filter: brightness(0.95); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-primary { background: #3498db; color: white; }
+/* Кнопки — глобальные стили в App.vue */
 .btn-success { background: #10b981; color: white; }
-
-.btn-lg {
-  padding: 12px 28px;
-  font-size: 1rem;
-}
+.btn-lg { padding: 12px 28px; font-size: 1rem; }
 
 /* Responsive */
 @media (max-width: 640px) {

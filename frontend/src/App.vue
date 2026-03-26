@@ -8,7 +8,7 @@
         <router-link to="/">Дашборд</router-link>
         <router-link to="/history">История</router-link>
         <router-link to="/recommendations">Рекомендации</router-link>
-        <router-link to="/crossref-import"> Импорт публикаций</router-link>
+        <router-link to="/crossref-import">Импорт публикаций</router-link>
         <router-link v-if="isAdmin" to="/manager" class="admin-link"> Управление</router-link>
       </nav>
 
@@ -384,4 +384,68 @@ body {
   color: #aaa;
   font-size: 0.85rem;
 }
+
+/* ===== Глобальные стили кнопок ===== */
+.btn {
+  padding: 9px 18px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  line-height: 1.4;
+}
+.btn:hover { filter: brightness(0.93); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
+
+.btn-sm { padding: 5px 12px; font-size: 0.82rem; }
+
+.btn-primary { background: #007bff; color: white; }
+.btn-primary:hover { background: #0069d9; }
+
+.btn-secondary { background: #6c757d; color: white; }
+.btn-secondary:hover { background: #5a6268; }
+
+.btn-danger { background: #dc2626; color: white; }
+.btn-danger:hover { background: #b91c1c; }
+
+.btn-outline { background: transparent; border: 1.5px solid #d1d5db; color: #374151; }
+.btn-outline:hover { background: #f8f9fa; }
+
+.btn-outline-primary { background: white; color: #007bff; border: 1.5px solid #007bff; }
+.btn-outline-primary:hover { background: #f0f7ff; }
+
+.btn-outline-excel { background: white; color: #1d6f42; border: 1.5px solid #1d6f42; }
+.btn-outline-excel:hover { background: #f0fff4; }
+
+.btn-cancel { background: white; border: 1.5px solid #d1d5db; color: #374151; }
+.btn-cancel:hover { background: #f3f4f6; }
+
+.btn-approve { background: #16a34a; color: white; }
+.btn-approve:hover { background: #15803d; }
+
+.btn-reject { background: #dc2626; color: white; }
+.btn-reject:hover { background: #b91c1c; }
+
+.btn-edit { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+.btn-edit:hover { background: #ffe8a0; }
+
+.btn-submit { background: #d4edda; color: #155724; border: 1px solid #28a745; }
+.btn-submit:hover { background: #b8dfc4; }
+
+.btn-outline-cancel { background: transparent; border: 1.5px solid #9ca3af; color: #6b7280; }
+.btn-outline-cancel:hover { background: #f3f4f6; }
+
+/* Статус-бейджи (используются повсюду) */
+.status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.status-draft { background: #e9ecef; color: #495057; }
+.status-submitted { background: #fff3cd; color: #856404; }
+.status-approved { background: #d4edda; color: #155724; }
+.status-rejected { background: #f8d7da; color: #721c24; }
 </style>

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, Notification
+from .models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommendation, Notification
 
 
 class KpiIndicatorSerializer(serializers.ModelSerializer):
@@ -49,6 +49,26 @@ class KpiValueSerializer(serializers.ModelSerializer):
             'full_name': obj.user.get_full_name(),
             'email': obj.user.email,
         }
+
+
+class KpiValueLogSerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+    action_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KpiValueLog
+        fields = [
+            'id', 'action', 'action_display', 'actor', 'actor_name',
+            'comment', 'old_value', 'new_value', 'created_at',
+        ]
+
+    def get_actor_name(self, obj):
+        if not obj.actor:
+            return None
+        return obj.actor.get_full_name() or obj.actor.username
+
+    def get_action_display(self, obj):
+        return obj.get_action_display()
 
 
 class KpiRecommendationSerializer(serializers.ModelSerializer):

@@ -4,7 +4,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from apps.kpi.api import views
-from apps.kpi.api.profile_views import UserProfileView
+from apps.kpi.api.profile_views import UserProfileView, ChangePasswordView, AvatarUploadView
 
 from apps.kpi.api.crossref_views import (
     CrossrefSyncView, CrossrefSearchByDoiView,
@@ -35,6 +35,16 @@ urlpatterns = [
         'profile/',
         UserProfileView.as_view(),
         name='user-profile'
+    ),
+    path(
+        'profile/change-password/',
+        ChangePasswordView.as_view(),
+        name='change-password'
+    ),
+    path(
+        'profile/avatar/',
+        AvatarUploadView.as_view(),
+        name='avatar-upload'
     ),
 
     # === Список показателей для ручного ввода ===

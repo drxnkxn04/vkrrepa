@@ -4,7 +4,7 @@ from rest_framework import viewsets, status, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.views import APIView
 from django.http import HttpResponse
 from django.contrib.auth import get_user_model
@@ -12,11 +12,12 @@ from django.utils import timezone
 from datetime import datetime
 import logging
 
-from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, Notification, get_user_kpi_role
+from ..models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommendation, Notification, get_user_kpi_role
 from ..serializers import (
     KpiGroupSerializer,
     KpiIndicatorSerializer,
     KpiValueSerializer,
+    KpiValueLogSerializer,
     KpiRecommendationSerializer,
     NotificationSerializer,
 )
@@ -36,6 +37,18 @@ from ..services import KpiCalculator, KpiReportGenerator
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+def _log_kpi_action(kpi_value, action, actor, comment='', old_value=None, new_value=None):
+    """Записывает событие в аудит-лог KPI."""
+    KpiValueLog.objects.create(
+        kpi_value=kpi_value,
+        action=action,
+        actor=actor,
+        comment=comment,
+        old_value=old_value,
+        new_value=new_value,
+    )
 
 
 class KpiValueViewSet(viewsets.ModelViewSet):
@@ -67,7 +80,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         user_id = self.request.query_params.get('user_id')
         period = self.request.query_params.get('period')
 
-        if self.request.user.is_staff and (scope == 'all' or status_param or user_id or self.action in ('approve', 'reject', 'pending')):
+        if self.request.user.is_staff and (scope == 'all' or status_param or user_id or self.action in ('approve', 'reject', 'pending', 'logs')):
             if user_id:
                 qs = qs.filter(user_id=user_id)
         else:
@@ -83,10 +96,23 @@ class KpiValueViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Auto-attach user and set draft status."""
-        serializer.save(
+        indicator = serializer.validated_data.get('indicator')
+        period = serializer.validated_data.get('period')
+        if KpiValue.objects.filter(
+            user=self.request.user, indicator=indicator, period=period
+        ).exists():
+            raise ValidationError(
+                'Значение KPI для данного показателя и периода уже существует. '
+                'Вы можете отредактировать существующую запись.'
+            )
+        instance = serializer.save(
             user=self.request.user,
             status=KpiValue.STATUS_DRAFT,
             is_verified=False
+        )
+        _log_kpi_action(
+            instance, KpiValueLog.ACTION_CREATED, self.request.user,
+            new_value=instance.actual_value,
         )
 
     def _ensure_owner(self, obj):
@@ -101,13 +127,27 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         self._ensure_owner(obj)
         self._ensure_editable(obj)
-        return super().update(request, *args, **kwargs)
+        old_val = obj.actual_value
+        response = super().update(request, *args, **kwargs)
+        obj.refresh_from_db()
+        _log_kpi_action(
+            obj, KpiValueLog.ACTION_UPDATED, request.user,
+            old_value=old_val, new_value=obj.actual_value,
+        )
+        return response
 
     def partial_update(self, request, *args, **kwargs):
         obj = self.get_object()
         self._ensure_owner(obj)
         self._ensure_editable(obj)
-        return super().partial_update(request, *args, **kwargs)
+        old_val = obj.actual_value
+        response = super().partial_update(request, *args, **kwargs)
+        obj.refresh_from_db()
+        _log_kpi_action(
+            obj, KpiValueLog.ACTION_UPDATED, request.user,
+            old_value=old_val, new_value=obj.actual_value,
+        )
+        return response
 
     def destroy(self, request, *args, **kwargs):
         obj = self.get_object()
@@ -133,6 +173,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         obj.save(update_fields=[
             'status', 'submitted_at', 'reviewer', 'reviewed_at', 'review_comment', 'is_verified'
         ])
+        _log_kpi_action(obj, KpiValueLog.ACTION_SUBMITTED, request.user)
 
         submitter_name = obj.user.get_full_name() or obj.user.username
         for staff_user in User.objects.filter(is_staff=True, is_active=True):
@@ -164,6 +205,10 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         obj.save(update_fields=[
             'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
         ])
+        _log_kpi_action(
+            obj, KpiValueLog.ACTION_APPROVED, request.user,
+            comment=obj.review_comment,
+        )
 
         reviewer_name = request.user.get_full_name() or request.user.username
         _create_notification(
@@ -194,6 +239,10 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         obj.save(update_fields=[
             'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
         ])
+        _log_kpi_action(
+            obj, KpiValueLog.ACTION_REJECTED, request.user,
+            comment=obj.review_comment,
+        )
 
         reviewer_name = request.user.get_full_name() or request.user.username
         comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment else ''
@@ -218,6 +267,16 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             qs = qs.filter(period=period)
         return Response(KpiValueSerializer(qs, many=True, context={'request': request}).data)
 
+    @action(detail=True, methods=['get'])
+    def logs(self, request, pk=None):
+        """Получить историю изменений для конкретного KPI-значения."""
+        obj = self.get_object()
+        # Владелец видит свои логи, админ — любые
+        if obj.user_id != request.user.id and not request.user.is_staff:
+            raise PermissionDenied('Доступ запрещён.')
+        logs = obj.logs.select_related('actor').all()
+        return Response(KpiValueLogSerializer(logs, many=True).data)
+
     @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
     def bulk_approve(self, request):
         """Массовое подтверждение KPI значений."""
@@ -239,6 +298,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             if comment:
                 obj.review_comment = comment
             obj.save(update_fields=['status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'])
+            _log_kpi_action(obj, KpiValueLog.ACTION_APPROVED, request.user, comment=comment)
             _create_notification(
                 recipient=obj.user,
                 notification_type=Notification.TYPE_APPROVED,
@@ -270,6 +330,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             if comment:
                 obj.review_comment = comment
             obj.save(update_fields=['status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'])
+            _log_kpi_action(obj, KpiValueLog.ACTION_REJECTED, request.user, comment=comment)
             comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment else ''
             _create_notification(
                 recipient=obj.user,
@@ -373,12 +434,12 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         user = request.user
 
         if user.is_staff:
-            # РУКОВОДИТЕЛЬ - все периоды в системе
-            periods = KpiValue.objects.filter(
-                status=KpiValue.STATUS_APPROVED  # Только одобренные
-            ).values_list('period', flat=True).distinct().order_by('-period')
+            # РУКОВОДИТЕЛЬ — все периоды в системе (любой статус)
+            periods = KpiValue.objects.values_list(
+                'period', flat=True
+            ).distinct().order_by('-period')
         else:
-            # СОТРУДНИК - только свои периоды
+            # СОТРУДНИК — только свои периоды
             periods = KpiValue.objects.filter(
                 user=user
             ).values_list('period', flat=True).distinct().order_by('-period')
@@ -424,10 +485,16 @@ class ManagerDashboardView(APIView):
 
     def get(self, request, *args, **kwargs):
         period = request.query_params.get('period', timezone.now().strftime('%Y-%m'))
+        role_filter = request.query_params.get('role', 'pps')  # pps | rop | all
 
         try:
             calculator = KpiCalculator()
             users = User.objects.filter(is_active=True, is_superuser=False)
+
+            if role_filter == 'pps':
+                users = users.filter(is_staff=False)
+            elif role_filter == 'rop':
+                users = users.filter(is_staff=True)
 
             manager_data = []
 

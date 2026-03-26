@@ -34,6 +34,28 @@
       </div>
     </div>
 
+    <!-- Блок «Что нужно сделать» -->
+    <div v-if="actionItems.length > 0" class="action-panel">
+      <h3>Требуется внимание</h3>
+      <div class="action-items">
+        <div
+          v-for="(item, i) in actionItems"
+          :key="i"
+          class="action-item"
+          :class="item.type"
+        >
+          <span class="action-icon">{{ item.icon }}</span>
+          <div class="action-text">
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.description }}</span>
+          </div>
+          <button v-if="item.action" class="btn btn-sm btn-outline" @click="item.action">
+            {{ item.buttonText }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Сводные карточки -->
     <div class="summary-cards">
       <div class="card total-score">
@@ -144,6 +166,13 @@
                   >
                     На проверку
                   </button>
+                  <button
+                    class="btn btn-sm btn-outline"
+                    @click="openLogs(value)"
+                    title="История изменений"
+                  >
+                    История
+                  </button>
                 </div>
               </td>
             </tr>
@@ -205,37 +234,55 @@
       </div>
     </div>
 
-    <!-- Рекомендации -->
-    <div class="recommendations" v-if="activeRecommendations.length > 0">
-      <div class="rec-section-header">
-        <h2>Рекомендации по улучшению</h2>
-        <router-link to="/recommendations" class="rec-link">Все рекомендации &rarr;</router-link>
-      </div>
-      <div v-for="rec in activeRecommendations" :key="rec.id" class="recommendation-card" :class="`rec-priority-${rec.priority}`">
-        <div class="rec-header">
-          <div class="rec-header-left">
-            <span class="rec-priority-tag" :class="rec.priority">
-              {{ rec.priority === 'high' ? 'Высокий' : rec.priority === 'medium' ? 'Средний' : 'Низкий' }}
-            </span>
-            <h3>{{ rec.indicator_name }}</h3>
+    <!-- Рекомендации (компактный блок) -->
+    <div class="rec-summary-block" v-if="activeRecommendations.length > 0">
+      <div class="rec-summary-inner">
+        <div class="rec-summary-left">
+          <h3>Рекомендации по улучшению</h3>
+          <div class="rec-summary-counts">
+            <span v-if="recHighCount" class="rec-count high">{{ recHighCount }} высокий</span>
+            <span v-if="recMediumCount" class="rec-count medium">{{ recMediumCount }} средний</span>
+            <span v-if="recLowCount" class="rec-count low">{{ recLowCount }} низкий</span>
           </div>
-          <span class="rec-completion" :class="rec.current_completion < 30 ? 'crit' : rec.current_completion < 60 ? 'warn' : 'ok'">
-            {{ rec.current_completion.toFixed(0) }}%
-          </span>
+          <p class="rec-summary-hint">
+            {{ activeRecommendations.length }} {{ activeRecommendations.length === 1 ? 'показатель требует' : 'показателей требуют' }} внимания
+          </p>
         </div>
-        <div class="rec-progress-bar">
+        <router-link to="/recommendations" class="btn btn-primary btn-rec-link">
+          Подробнее
+        </router-link>
+      </div>
+    </div>
+
+    <!-- Модалка истории изменений -->
+    <div v-if="showLogsModal" class="modal-backdrop" @click.self="showLogsModal = false">
+      <div class="logs-modal">
+        <div class="logs-header">
+          <h3>История изменений</h3>
+          <button class="close-btn" @click="showLogsModal = false">&times;</button>
+        </div>
+        <div v-if="logsLoading" class="logs-loading">Загрузка...</div>
+        <div v-else-if="valueLogs.length === 0" class="logs-empty">Нет записей</div>
+        <div v-else class="logs-timeline">
           <div
-            class="rec-progress-fill"
-            :class="rec.current_completion < 30 ? 'crit' : rec.current_completion < 60 ? 'warn' : 'ok'"
-            :style="{ width: Math.min(rec.current_completion, 100) + '%' }"
-          ></div>
-        </div>
-        <p class="rec-text">{{ rec.text }}</p>
-        <div class="rec-footer">
-          <span class="target">{{ rec.actual_value }} / {{ rec.target_value }} {{ rec.indicator_unit }} &middot; Срок: {{ rec.deadline_period }}</span>
-          <button @click="markRecommendationDone(rec.id)" class="btn btn-sm btn-outline">
-            Выполнено
-          </button>
+            v-for="log in valueLogs"
+            :key="log.id"
+            class="log-entry"
+            :class="log.action"
+          >
+            <div class="log-dot"></div>
+            <div class="log-content">
+              <div class="log-action">{{ log.action_display }}</div>
+              <div class="log-meta">
+                <span class="log-actor">{{ log.actor_name || 'Система' }}</span>
+                <span class="log-time">{{ formatDateTime(log.created_at) }}</span>
+              </div>
+              <div v-if="log.old_value != null && log.new_value != null && log.old_value !== log.new_value" class="log-values">
+                {{ log.old_value }} → {{ log.new_value }}
+              </div>
+              <div v-if="log.comment" class="log-comment">{{ log.comment }}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -276,6 +323,9 @@ export default {
       valuesLoading: false,
       showModal: false,
       editingValue: null,
+      showLogsModal: false,
+      valueLogs: [],
+      logsLoading: false,
       teamAverage: null,
       teamUserCount: 0,
       chartData: {
@@ -298,8 +348,64 @@ export default {
     };
   },
   computed: {
+    actionItems() {
+      const items = [];
+      // Отклонённые записи — нужно исправить
+      const rejected = this.values.filter(v => v.status === 'rejected');
+      if (rejected.length > 0) {
+        items.push({
+          type: 'rejected',
+          icon: '❌',
+          title: `${rejected.length} ${rejected.length === 1 ? 'запись отклонена' : 'записей отклонено'}`,
+          description: 'Исправьте данные и отправьте повторно',
+          buttonText: 'Исправить',
+          action: () => {
+            const el = this.$el.querySelector('.values-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          },
+        });
+      }
+      // Черновики — не отправлены на проверку
+      const drafts = this.values.filter(v => v.status === 'draft');
+      if (drafts.length > 0) {
+        items.push({
+          type: 'draft',
+          icon: '📝',
+          title: `${drafts.length} ${drafts.length === 1 ? 'черновик' : 'черновиков'} не отправлено`,
+          description: 'Отправьте на проверку руководителю',
+          buttonText: 'Перейти',
+          action: () => {
+            const el = this.$el.querySelector('.values-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          },
+        });
+      }
+      // Пустые группы показателей — нет данных
+      const emptyGroups = this.kpiGroups.filter(g => g.score === 0 && g.indicators?.length > 0);
+      if (emptyGroups.length > 0) {
+        const names = emptyGroups.map(g => g.name).join(', ');
+        items.push({
+          type: 'empty',
+          icon: '📊',
+          title: `Нет данных по ${emptyGroups.length} ${emptyGroups.length === 1 ? 'направлению' : 'направлениям'}`,
+          description: names,
+          buttonText: '+ Добавить',
+          action: () => this.showDataInputModal(),
+        });
+      }
+      return items;
+    },
     activeRecommendations() {
-      return (this.recommendations || []).filter(r => !r.is_completed).slice(0, 5);
+      return (this.recommendations || []).filter(r => !r.is_completed);
+    },
+    recHighCount() {
+      return this.activeRecommendations.filter(r => r.priority === 'high').length;
+    },
+    recMediumCount() {
+      return this.activeRecommendations.filter(r => r.priority === 'medium').length;
+    },
+    recLowCount() {
+      return this.activeRecommendations.filter(r => r.priority === 'low').length;
     },
     scoreClass() {
       if (this.totalScore >= 90) return 'excellent';
@@ -521,6 +627,27 @@ export default {
       this.showModal = false;
       this.editingValue = null;
     },
+    async openLogs(value) {
+      this.showLogsModal = true;
+      this.logsLoading = true;
+      this.valueLogs = [];
+      try {
+        const response = await kpiAPI.getValueLogs(value.id);
+        this.valueLogs = response.data;
+      } catch (error) {
+        console.error('Ошибка загрузки истории:', error);
+        this.$toast.error('Не удалось загрузить историю');
+      } finally {
+        this.logsLoading = false;
+      }
+    },
+    formatDateTime(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    },
     async markRecommendationDone(recId) {
       try {
         await kpiAPI.completeRecommendation(recId);
@@ -545,21 +672,7 @@ export default {
 .period-selector select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; }
 .header-actions { display: flex; gap: 10px; flex-shrink: 0; padding-top: 4px; }
 
-/* Кнопки */
-.btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-weight: 500; font-size: 0.9rem; transition: all 0.2s; }
-.btn-primary { background: #007bff; color: white; }
-.btn-primary:hover { background: #0069d9; }
-.btn-outline-primary { background: white; color: #007bff; border: 1.5px solid #007bff; }
-.btn-outline-primary:hover { background: #f0f7ff; }
-.btn-outline-excel { background: white; color: #1d6f42; border: 1.5px solid #1d6f42; }
-.btn-outline-excel:hover { background: #f0fff4; }
-.btn-outline { background: transparent; border: 1px solid #6c757d; color: #6c757d; }
-.btn-outline:hover { background: #f8f9fa; }
-.btn-sm { padding: 5px 10px; font-size: 0.82rem; }
-.btn-edit { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
-.btn-edit:hover { background: #ffe8a0; }
-.btn-submit { background: #d4edda; color: #155724; border: 1px solid #28a745; }
-.btn-submit:hover { background: #b8dfc4; }
+/* Кнопки — глобальные стили в App.vue */
 
 /* Предупреждения о порогах */
 .threshold-warnings { margin-bottom: 16px; }
@@ -644,11 +757,7 @@ export default {
 .muted { color: #6c757d; font-weight: 400; }
 .comment-cell { color: #6c757d; font-size: 0.85rem; max-width: 200px; }
 .action-buttons { display: flex; gap: 6px; flex-wrap: nowrap; }
-.status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
-.status-draft { background: #e9ecef; color: #495057; }
-.status-submitted { background: #fff3cd; color: #856404; }
-.status-approved { background: #d4edda; color: #155724; }
-.status-rejected { background: #f8d7da; color: #721c24; }
+/* Статус-бейджи — глобальные стили в App.vue */
 .values-empty { color: #6c757d; display: flex; align-items: center; padding: 8px 0; }
 .values-loading { color: #6c757d; }
 
@@ -694,33 +803,217 @@ export default {
 .ind-bar-fill.poor { background: #dc3545; }
 .ind-values { font-size: 0.78rem; color: #888; white-space: nowrap; }
 
-/* Рекомендации */
-.recommendations { margin-bottom: 28px; }
-.rec-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.rec-section-header h2 { font-size: 1.2rem; margin: 0; }
-.rec-link { color: #3b82f6; text-decoration: none; font-size: 0.9rem; font-weight: 500; }
-.rec-link:hover { text-decoration: underline; }
-.recommendation-card { background: white; border-left: 4px solid #d1d5db; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.recommendation-card.rec-priority-high { border-left-color: #dc2626; }
-.recommendation-card.rec-priority-medium { border-left-color: #d97706; }
-.recommendation-card.rec-priority-low { border-left-color: #059669; }
-.rec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.rec-header-left { display: flex; align-items: center; gap: 10px; }
-.rec-header h3 { margin: 0; font-size: 1rem; }
-.rec-priority-tag { padding: 2px 8px; border-radius: 8px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
-.rec-priority-tag.high { background: #fef2f2; color: #dc2626; }
-.rec-priority-tag.medium { background: #fffbeb; color: #d97706; }
-.rec-priority-tag.low { background: #ecfdf5; color: #059669; }
-.rec-completion { font-weight: 700; font-size: 1rem; }
-.rec-completion.crit { color: #dc2626; }
-.rec-completion.warn { color: #d97706; }
-.rec-completion.ok { color: #059669; }
-.rec-progress-bar { height: 6px; background: #f3f4f6; border-radius: 3px; overflow: hidden; margin-bottom: 10px; }
-.rec-progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-.rec-progress-fill.crit { background: #dc2626; }
-.rec-progress-fill.warn { background: #d97706; }
-.rec-progress-fill.ok { background: #059669; }
-.rec-text { margin: 0 0 10px; color: #374151; line-height: 1.5; font-size: 0.9rem; }
-.rec-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
-.target { color: #6b7280; font-size: 0.85rem; }
+/* Блок рекомендаций (компактный тизер) */
+.rec-summary-block {
+  margin-bottom: 28px;
+}
+.rec-summary-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 10px;
+  padding: 18px 24px;
+  gap: 16px;
+}
+.rec-summary-left h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  color: #92400e;
+}
+.rec-summary-counts {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.rec-count {
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.rec-count.high { background: #fef2f2; color: #dc2626; }
+.rec-count.medium { background: #fffbeb; color: #d97706; }
+.rec-count.low { background: #ecfdf5; color: #059669; }
+.rec-summary-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #78350f;
+}
+.btn-rec-link {
+  white-space: nowrap;
+  text-decoration: none;
+  padding: 10px 20px;
+  background: #f59e0b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-rec-link:hover { background: #d97706; }
+
+/* Блок «Что нужно сделать» */
+.action-panel {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+.action-panel h3 {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+  color: #1f2937;
+}
+.action-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.action-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border-left: 4px solid transparent;
+}
+.action-item.rejected {
+  background: #fef2f2;
+  border-left-color: #dc2626;
+}
+.action-item.draft {
+  background: #fffbeb;
+  border-left-color: #f59e0b;
+}
+.action-item.empty {
+  background: #eff6ff;
+  border-left-color: #3b82f6;
+}
+.action-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+.action-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.action-text strong {
+  font-size: 0.92rem;
+  color: #1f2937;
+}
+.action-text span {
+  font-size: 0.82rem;
+  color: #6b7280;
+}
+
+/* Модалка истории изменений */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+.logs-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #e9ecef;
+}
+.logs-header h3 { margin: 0; font-size: 1.1rem; }
+.close-btn {
+  background: none; border: none; font-size: 1.6rem; cursor: pointer;
+  color: #aaa; padding: 0; line-height: 1;
+}
+.close-btn:hover { color: #333; }
+.logs-loading, .logs-empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: #6b7280;
+}
+.logs-timeline {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.log-entry {
+  display: flex;
+  gap: 14px;
+  padding: 12px 0;
+  border-left: 2px solid #e5e7eb;
+  margin-left: 8px;
+  padding-left: 20px;
+  position: relative;
+}
+.log-entry:last-child { border-left-color: transparent; }
+.log-dot {
+  position: absolute;
+  left: -7px;
+  top: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #d1d5db;
+  border: 2px solid white;
+}
+.log-entry.created .log-dot { background: #3b82f6; }
+.log-entry.submitted .log-dot { background: #f59e0b; }
+.log-entry.approved .log-dot { background: #10b981; }
+.log-entry.rejected .log-dot { background: #ef4444; }
+.log-entry.updated .log-dot { background: #8b5cf6; }
+.log-content { flex: 1; }
+.log-action {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+.log-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+.log-values {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: #4b5563;
+  background: #f9fafb;
+  padding: 4px 10px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.log-comment {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-style: italic;
+  background: #fef3c7;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
 </style>

@@ -30,16 +30,7 @@ const store = createStore({
     
     // Проверка, является ли пользователь администратором
     isAdmin: (state) => {
-      const result = state.user?.is_staff === true || state.user?.is_superuser === true;
-      
-      // ВРЕМЕННЫЙ DEBUG
-      console.log(' isAdmin getter:', {
-        user: state.user,
-        is_staff: state.user?.is_staff,
-        result
-      });
-      
-      return result;
+      return state.user?.is_staff === true || state.user?.is_superuser === true;
     },
     
     // Получение текущего пользователя
@@ -91,11 +82,6 @@ const store = createStore({
     SET_USER(state, user) {
       state.user = user;
       localStorage.setItem('user', JSON.stringify(user));
-      console.log(' SET_USER called:', {
-        user,
-        is_staff: user?.is_staff,
-        is_superuser: user?.is_superuser
-      });
     },
     
     // Очистка данных аутентификации
@@ -151,21 +137,16 @@ const store = createStore({
         
         commit('SET_TOKENS', { access, refresh });
         
-        // Декодируем JWT - теперь он содержит is_staff!
         const payload = JSON.parse(atob(access.split('.')[1]));
-        
-        console.log(' JWT Payload:', payload); // DEBUG
-        
+
         const user = {
           id: payload.user_id,
           username: username,
-          is_staff: payload.is_staff || false,  // Теперь из токена
+          is_staff: payload.is_staff || false,
           is_superuser: payload.is_superuser || false,
           email: payload.email || '',
           full_name: payload.full_name || username
         };
-        
-        console.log(' User object:', user); // DEBUG
         
         commit('SET_USER', user);
         commit('SET_AUTH_STATUS', 'success');
