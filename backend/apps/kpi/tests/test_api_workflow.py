@@ -212,7 +212,8 @@ class KpiWorkflowAPITestCase(APITestCase):
 
         admin_periods = self.admin_client.get(reverse('kpivalue-periods'))
         self.assertEqual(admin_periods.status_code, status.HTTP_200_OK)
-        self.assertEqual(admin_periods.data, ['2025-02', '2025-01'])
+        # Руководитель видит все периоды в системе, включая черновики
+        self.assertEqual(admin_periods.data, ['2025-03', '2025-02', '2025-01'])
 
     def test_values_list_can_be_filtered_by_period(self):
         KpiValue.objects.create(

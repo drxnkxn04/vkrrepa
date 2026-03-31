@@ -126,3 +126,112 @@ export default {
   },
 };
 </script>
+
+<style scoped>
+.pending-card {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 24px;
+}
+
+.pending-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.pending-header h2 { margin: 0; color: #2c3e50; }
+
+.pending-count {
+  background: #e9ecef;
+  color: #495057;
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f0f7ff;
+  border: 1.5px solid #1a73e8;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.bulk-count { font-weight: 600; font-size: 0.9rem; color: #1a73e8; white-space: nowrap; }
+
+.bulk-comment-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 0.88rem;
+}
+
+.btn-outline-cancel { background: white; border: 1px solid #dee2e6; color: #6c757d; cursor: pointer; padding: 5px 12px; border-radius: 4px; }
+.btn-outline-cancel:hover { background: #f8f9fa; }
+
+.bulk-bar-enter-active, .bulk-bar-leave-active { transition: all 0.2s ease; }
+.bulk-bar-enter-from, .bulk-bar-leave-to { opacity: 0; transform: translateY(-8px); }
+
+.table-responsive { overflow-x: auto; }
+
+.pending-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pending-table th {
+  background: #f8f9fa;
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #2c3e50;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.pending-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.pending-table tr:hover { background: #f8f9fa; }
+
+.cb-col { width: 36px; text-align: center; }
+.row-selected td { background: #f0f7ff !important; }
+
+.pending-loading, .pending-empty {
+  color: #6c757d;
+  text-align: center;
+  padding: 20px;
+}
+
+.review-input {
+  width: 100%;
+  min-width: 140px;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.evidence-link {
+  color: #007bff;
+  text-decoration: none;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.evidence-link:hover { text-decoration: underline; }
+.no-evidence { color: #aaa; }
+.employee-comment { color: #555; font-size: 0.85rem; max-width: 160px; }
+
+.btn-approve { margin-right: 6px; }
+</style>

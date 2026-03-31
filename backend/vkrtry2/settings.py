@@ -247,15 +247,12 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # User-Agent должен содержать название проекта и контактную информацию
 CROSSREF_USER_AGENT = os.getenv(
     'CROSSREF_USER_AGENT',
-    'KPI-Management-System/1.0 (https://github.com/drxnkxn04/vkrrepa; mailto:drynkin.ivan@inbox.ru)'
+    'KPI-Management-System/1.0'
 )
 
 # Email для идентификации (используется в параметре mailto)
 # Crossref дает приоритет "вежливым" клиентам, которые предоставляют email
-CROSSREF_MAILTO = os.getenv(
-    'CROSSREF_MAILTO',
-    'drynkin.ivan@inbox.ru'
-)
+CROSSREF_MAILTO = os.getenv('CROSSREF_MAILTO', '')
 
 # Таймауты для запросов к Crossref API (в секундах)
 CROSSREF_TIMEOUT = int(os.getenv('CROSSREF_TIMEOUT', '30'))

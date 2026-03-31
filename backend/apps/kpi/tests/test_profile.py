@@ -57,15 +57,16 @@ class UserProfileTestCase(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_update_role(self):
-        """Обновление роли (pps/rop)."""
+    def test_role_not_changeable_via_profile(self):
+        """Роль нельзя сменить через API профиля — управляется администратором."""
         response = self.client.patch(
             reverse('user-profile'),
             {'role': 'rop'},
             format='json'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['role'], 'rop')
+        # Роль не должна измениться
+        self.assertEqual(response.data['role'], 'pps')
 
     def test_update_department_and_position(self):
         """Обновление кафедры и должности."""
