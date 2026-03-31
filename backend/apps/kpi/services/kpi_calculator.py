@@ -499,7 +499,12 @@ class KpiCalculator:
         )
 
     def _get_next_period(self, current_period: str) -> str:
-        year, month = map(int, current_period.split('-'))
+        try:
+            year, month = map(int, current_period.split('-'))
+        except (ValueError, AttributeError):
+            logger.exception(f"Некорректный формат периода: {current_period!r}")
+            now = datetime.now()
+            year, month = now.year, now.month
         if month == 12:
             return f"{year + 1}-01"
         else:
@@ -561,7 +566,11 @@ class KpiCalculator:
                 y -= 1
             period = f"{y}-{m:02d}"
 
-            result = self.calculate_total_score(user_id, period)
+            try:
+                result = self.calculate_total_score(user_id, period)
+            except Exception:
+                logger.exception(f"Ошибка расчёта KPI для user_id={user_id}, период={period}")
+                result = self._empty_result()
 
             group_summary = {}
             for gid, gdata in result.get('group_scores', {}).items():
@@ -587,7 +596,11 @@ class KpiCalculator:
         performers = []
 
         for user in users:
-            result = self.calculate_total_score(user.id, period)
+            try:
+                result = self.calculate_total_score(user.id, period)
+            except Exception:
+                logger.exception(f"Ошибка расчёта KPI для user_id={user.id}, период={period}")
+                continue
 
             performers.append({
                 'user_id': user.id,

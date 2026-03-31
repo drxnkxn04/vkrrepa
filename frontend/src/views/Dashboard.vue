@@ -517,6 +517,7 @@ export default {
         this.recommendations = response.data;
       } catch (error) {
         console.error('Ошибка загрузки рекомендаций:', error);
+        this.$toast.error('Не удалось загрузить рекомендации');
       }
     },
     async loadValues() {
@@ -526,6 +527,7 @@ export default {
         this.values = extractResults(response.data);
       } catch (error) {
         console.error('Ошибка загрузки значений KPI:', error);
+        this.$toast.error('Не удалось загрузить данные KPI');
         this.values = [];
       } finally {
         this.valuesLoading = false;

@@ -12,6 +12,19 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from datetime import datetime
 import logging
+import re
+
+_PERIOD_RE = re.compile(r'^\d{4}-(0[1-9]|1[0-2])$')
+
+
+def _validate_period(period: str):
+    """Возвращает Response(400) если period не соответствует YYYY-MM, иначе None."""
+    if not _PERIOD_RE.match(period):
+        return Response(
+            {'error': 'Некорректный формат периода. Ожидается YYYY-MM (например, 2025-03)'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
 
 from ..models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommendation, Notification, get_user_kpi_role
 from ..serializers import (
@@ -343,6 +356,10 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         user = request.user
         period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
 
+        err = _validate_period(period)
+        if err:
+            return err
+
         try:
             calculator = KpiCalculator()
             dashboard_data = calculator.calculate_dashboard(user.id, period)
@@ -392,6 +409,10 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         """
         user = request.user
         period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
+
+        err = _validate_period(period)
+        if err:
+            return err
 
         try:
             calculator = KpiCalculator()
@@ -470,6 +491,10 @@ class ManagerDashboardView(APIView):
     def get(self, request, *args, **kwargs):
         period = request.query_params.get('period', timezone.now().strftime('%Y-%m'))
         role_filter = request.query_params.get('role', 'pps')  # pps | rop | all
+
+        err = _validate_period(period)
+        if err:
+            return err
 
         try:
             calculator = KpiCalculator()
