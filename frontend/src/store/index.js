@@ -1,7 +1,7 @@
 // frontend/src/store/index.js
 
 import { createStore } from 'vuex';
-import { authAPI } from '../services/api';
+import { authAPI, kpiAPI } from '../services/api';
 import router from '../router';
 
 // Vuex Store для управления глобальным состоянием приложения
@@ -17,6 +17,9 @@ const store = createStore({
     currentPeriod: null,
     dashboardData: null,
     
+    // Кэш справочников
+    manualIndicators: null,
+
     // UI состояние
     loading: false,
     error: null,
@@ -123,6 +126,11 @@ const store = createStore({
     CLEAR_ERROR(state) {
       state.error = null;
     },
+
+    // Кэш индикаторов
+    SET_MANUAL_INDICATORS(state, indicators) {
+      state.manualIndicators = indicators;
+    },
   },
   
   actions: {
@@ -151,8 +159,11 @@ const store = createStore({
         commit('SET_USER', user);
         commit('SET_AUTH_STATUS', 'success');
         
-        router.push('/');
-        
+        // Перенаправляем на сохранённый путь или на главную
+        const redirect = router.currentRoute.value.query.redirect;
+        const safePath = (typeof redirect === 'string' && redirect.startsWith('/')) ? redirect : '/';
+        router.push(safePath);
+
         return { success: true };
       } catch (error) {
         console.error('Login error:', error);
@@ -221,6 +232,14 @@ const store = createStore({
       }
     },
     
+    // Загрузка и кэширование индикаторов для ручного ввода
+    async loadManualIndicators({ commit, state }) {
+      if (state.manualIndicators) return state.manualIndicators;
+      const response = await kpiAPI.getManualIndicators();
+      commit('SET_MANUAL_INDICATORS', response.data);
+      return response.data;
+    },
+
     // Очистка ошибки
     clearError({ commit }) {
       commit('CLEAR_ERROR');

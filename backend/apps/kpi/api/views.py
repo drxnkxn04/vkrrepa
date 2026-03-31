@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.views import APIView
 from django.http import HttpResponse
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from datetime import datetime
 import logging
@@ -96,20 +97,17 @@ class KpiValueViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Auto-attach user and set draft status."""
-        indicator = serializer.validated_data.get('indicator')
-        period = serializer.validated_data.get('period')
-        if KpiValue.objects.filter(
-            user=self.request.user, indicator=indicator, period=period
-        ).exists():
+        try:
+            instance = serializer.save(
+                user=self.request.user,
+                status=KpiValue.STATUS_DRAFT,
+                is_verified=False
+            )
+        except IntegrityError:
             raise ValidationError(
                 'Значение KPI для данного показателя и периода уже существует. '
                 'Вы можете отредактировать существующую запись.'
             )
-        instance = serializer.save(
-            user=self.request.user,
-            status=KpiValue.STATUS_DRAFT,
-            is_verified=False
-        )
         _log_kpi_action(
             instance, KpiValueLog.ACTION_CREATED, self.request.user,
             new_value=instance.actual_value,
@@ -277,9 +275,8 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         logs = obj.logs.select_related('actor').all()
         return Response(KpiValueLogSerializer(logs, many=True).data)
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
-    def bulk_approve(self, request):
-        """Массовое подтверждение KPI значений."""
+    def _bulk_update_status(self, request, new_status, is_verified, action_type, notif_type, notif_title):
+        """Общая логика массового обновления статуса KPI значений."""
         ids = request.data.get('ids', [])
         comment = request.data.get('review_comment', '')
         if not ids:
@@ -290,56 +287,43 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         now = timezone.now()
         reviewer_name = request.user.get_full_name() or request.user.username
         count = 0
-        for obj in qs:
-            obj.status = KpiValue.STATUS_APPROVED
-            obj.is_verified = True
-            obj.reviewer = request.user
-            obj.reviewed_at = now
-            if comment:
-                obj.review_comment = comment
-            obj.save(update_fields=['status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'])
-            _log_kpi_action(obj, KpiValueLog.ACTION_APPROVED, request.user, comment=comment)
-            _create_notification(
-                recipient=obj.user,
-                notification_type=Notification.TYPE_APPROVED,
-                title='KPI одобрен',
-                message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} одобрен руководителем {reviewer_name}.',
-                kpi_value=obj,
-            )
-            count += 1
+        with transaction.atomic():
+            for obj in qs:
+                obj.status = new_status
+                obj.is_verified = is_verified
+                obj.reviewer = request.user
+                obj.reviewed_at = now
+                if comment:
+                    obj.review_comment = comment
+                obj.save(update_fields=['status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'])
+                _log_kpi_action(obj, action_type, request.user, comment=comment)
+                comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment and new_status == KpiValue.STATUS_REJECTED else ''
+                _create_notification(
+                    recipient=obj.user,
+                    notification_type=notif_type,
+                    title=notif_title,
+                    message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} {notif_title.lower().split("kpi ")[1]} руководителем {reviewer_name}.{comment_text}',
+                    kpi_value=obj,
+                )
+                count += 1
+        return count
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def bulk_approve(self, request):
+        """Массовое подтверждение KPI значений."""
+        count = self._bulk_update_status(
+            request, KpiValue.STATUS_APPROVED, True,
+            KpiValueLog.ACTION_APPROVED, Notification.TYPE_APPROVED, 'KPI одобрен',
+        )
         return Response({'approved': count})
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
     def bulk_reject(self, request):
         """Массовое отклонение KPI значений."""
-        ids = request.data.get('ids', [])
-        comment = request.data.get('review_comment', '')
-        if not ids:
-            raise ValidationError('Необходимо указать список id.')
-        qs = KpiValue.objects.filter(
-            id__in=ids, status=KpiValue.STATUS_SUBMITTED
-        ).select_related('indicator', 'user')
-        now = timezone.now()
-        reviewer_name = request.user.get_full_name() or request.user.username
-        count = 0
-        for obj in qs:
-            obj.status = KpiValue.STATUS_REJECTED
-            obj.is_verified = False
-            obj.reviewer = request.user
-            obj.reviewed_at = now
-            if comment:
-                obj.review_comment = comment
-            obj.save(update_fields=['status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'])
-            _log_kpi_action(obj, KpiValueLog.ACTION_REJECTED, request.user, comment=comment)
-            comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment else ''
-            _create_notification(
-                recipient=obj.user,
-                notification_type=Notification.TYPE_REJECTED,
-                title='KPI отклонён',
-                message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} отклонён руководителем {reviewer_name}.{comment_text}',
-                kpi_value=obj,
-            )
-            count += 1
+        count = self._bulk_update_status(
+            request, KpiValue.STATUS_REJECTED, False,
+            KpiValueLog.ACTION_REJECTED, Notification.TYPE_REJECTED, 'KPI отклонён',
+        )
         return Response({'rejected': count})
 
     @action(detail=False, methods=['get'], pagination_class=None)
@@ -382,7 +366,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         Список с данными KPI по месяцам
         """
         user = request.user
-        months = int(request.query_params.get('months', 6))
+        months = min(int(request.query_params.get('months', 6)), 60)
 
         try:
             calculator = KpiCalculator()
@@ -489,7 +473,9 @@ class ManagerDashboardView(APIView):
 
         try:
             calculator = KpiCalculator()
-            users = User.objects.filter(is_active=True, is_superuser=False)
+            users = User.objects.filter(
+                is_active=True, is_superuser=False
+            ).select_related('profile')
 
             if role_filter == 'pps':
                 users = users.filter(is_staff=False)
@@ -760,7 +746,7 @@ class TopPerformersView(APIView):
 
     def get(self, request, *args, **kwargs):
         period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
-        limit = int(request.query_params.get('limit', 10))
+        limit = min(int(request.query_params.get('limit', 10)), 100)
 
         try:
             calculator = KpiCalculator()
@@ -791,7 +777,9 @@ class TeamAverageView(APIView):
     def get(self, request):
         period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
         calculator = KpiCalculator()
-        users = User.objects.filter(is_active=True, is_staff=False, is_superuser=False)
+        users = User.objects.filter(
+            is_active=True, is_staff=False, is_superuser=False
+        ).select_related('profile')
         scores = []
         for user in users:
             try:

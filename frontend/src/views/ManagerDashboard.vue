@@ -76,11 +76,11 @@
       <!-- Фильтры и поиск -->
       <div class="filters-section">
         <div class="search-box">
-          <input 
-            type="text" 
-            v-model="searchQuery" 
+          <input
+            type="text"
+            v-model="searchQuery"
             placeholder="🔍 Поиск по имени или email..."
-            @input="filterUsers"
+            @input="debouncedFilterUsers"
           />
         </div>
         <div class="filter-buttons">
@@ -513,6 +513,7 @@
 <script>
 import { kpiAPI, downloadPDF, extractResults } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import { formatPeriod, formatCurrency } from '@/utils/formatters';
 
 export default {
   name: 'ManagerDashboardView',
@@ -579,9 +580,17 @@ export default {
     }
   },
   async created() {
+    this._filterTimeout = null;
     await this.loadPeriods();
   },
+  beforeUnmount() {
+    clearTimeout(this._filterTimeout);
+  },
   methods: {
+    debouncedFilterUsers() {
+      clearTimeout(this._filterTimeout);
+      this._filterTimeout = setTimeout(() => this.filterUsers(), 250);
+    },
     async loadPeriods() {
       try {
         // Получаем все уникальные периоды из системы
@@ -775,20 +784,8 @@ export default {
         return order === 'desc' ? -compareValue : compareValue;
       });
     },
-    formatPeriod(period) {
-      if (!period) return '—';
-      const [year, month] = period.split('-');
-      const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-                          'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-      return `${monthNames[parseInt(month) - 1]} ${year}`;
-    },
-    formatCurrency(amount) {
-      return new Intl.NumberFormat('ru-RU', {
-        style: 'currency',
-        currency: 'RUB',
-        minimumFractionDigits: 0
-      }).format(amount);
-    },
+    formatPeriod,
+    formatCurrency,
     formatLevel(level) {
       const levels = {
         'высокий': 'Высокая',

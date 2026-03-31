@@ -145,6 +145,7 @@
 
 <script>
 import { kpiAPI } from '@/services/api';
+import { formatPeriod } from '@/utils/formatters';
 
 export default {
   name: 'RecommendationsView',
@@ -239,15 +240,7 @@ export default {
       return 'crit';
     },
 
-    formatPeriod(period) {
-      if (!period) return '—';
-      const [year, month] = period.split('-');
-      const names = [
-        'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-      ];
-      return `${names[parseInt(month) - 1]} ${year}`;
-    },
+    formatPeriod,
   },
 };
 </script>

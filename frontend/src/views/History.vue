@@ -169,6 +169,7 @@
   <script>
   import LineChart from '@/components/charts/LineChart.vue';
   import { kpiAPI, downloadPDF } from '@/services/api';
+  import { formatPeriod as formatPeriodFull, formatCurrency } from '@/utils/formatters';
   
   export default {
     name: 'HistoryView',
@@ -318,18 +319,9 @@
         };
       },
       formatPeriod(period) {
-        const [year, month] = period.split('-');
-        const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 
-                            'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
-        return `${monthNames[parseInt(month) - 1]} ${year}`;
+        return formatPeriodFull(period, true);
       },
-      formatCurrency(amount) {
-        return new Intl.NumberFormat('ru-RU', {
-          style: 'currency',
-          currency: 'RUB',
-          minimumFractionDigits: 0
-        }).format(amount);
-      },
+      formatCurrency,
       formatLevel(level) {
         const levels = {
           'высокий': 'Высокая',

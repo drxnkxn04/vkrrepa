@@ -30,11 +30,22 @@ class ToastService {
         info: 'ℹ'
       };
       
-      toast.innerHTML = `
-        <div class="toast-icon">${icons[type] || icons.info}</div>
-        <div class="toast-message">${message}</div>
-        <button class="toast-close" onclick="this.parentElement.remove()">×</button>
-      `;
+      const iconEl = document.createElement('div');
+      iconEl.className = 'toast-icon';
+      iconEl.textContent = icons[type] || icons.info;
+
+      const messageEl = document.createElement('div');
+      messageEl.className = 'toast-message';
+      messageEl.textContent = message;
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'toast-close';
+      closeBtn.textContent = '\u00d7';
+      closeBtn.addEventListener('click', () => this.remove(toast));
+
+      toast.appendChild(iconEl);
+      toast.appendChild(messageEl);
+      toast.appendChild(closeBtn);
       
       this.container.appendChild(toast);
       

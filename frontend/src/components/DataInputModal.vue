@@ -165,8 +165,7 @@ export default {
   methods: {
     async fetchManualIndicators() {
       try {
-        const response = await kpiAPI.getManualIndicators();
-        this.manualIndicators = response.data;
+        this.manualIndicators = await this.$store.dispatch('loadManualIndicators');
       } catch (error) {
         console.error('Не удалось загрузить список показателей:', error);
         this.error = 'Не удалось загрузить список показателей. Попробуйте позже.';

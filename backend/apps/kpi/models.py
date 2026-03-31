@@ -108,6 +108,11 @@ class KpiValue(models.Model):
 
     class Meta:
         unique_together = ('user', 'indicator', 'period')
+        indexes = [
+            models.Index(fields=['user', 'period'], name='kpival_user_period_idx'),
+            models.Index(fields=['status'], name='kpival_status_idx'),
+            models.Index(fields=['period'], name='kpival_period_idx'),
+        ]
         verbose_name = 'Значение KPI'
         verbose_name_plural = 'Значения KPI'
 
@@ -214,6 +219,9 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['recipient', 'is_read'], name='notif_recipient_read_idx'),
+        ]
         verbose_name = 'Уведомление'
         verbose_name_plural = 'Уведомления'
 

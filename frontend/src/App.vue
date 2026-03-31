@@ -4,7 +4,7 @@
     <header v-if="isAuthenticated" class="app-header">
       <div class="logo">Система KPI</div>
 
-      <nav class="navigation">
+      <nav class="navigation" aria-label="Основная навигация">
         <router-link to="/">Дашборд</router-link>
         <router-link to="/history">История</router-link>
         <router-link to="/recommendations">Рекомендации</router-link>
@@ -15,12 +15,12 @@
       <div class="user-menu">
         <!-- Колокольчик уведомлений -->
         <div class="notification-bell" ref="bellRef">
-          <button class="bell-button" @click="toggleNotifications">
-            <span class="bell-icon">&#128276;</span>
-            <span v-if="unreadCount > 0" class="bell-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
+          <button class="bell-button" @click="toggleNotifications" aria-label="Уведомления" :aria-expanded="showNotifications">
+            <span class="bell-icon" aria-hidden="true">&#128276;</span>
+            <span v-if="unreadCount > 0" class="bell-badge" aria-label="Непрочитанных: {{ unreadCount }}">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
           </button>
 
-          <div v-if="showNotifications" class="notification-dropdown">
+          <div v-if="showNotifications" class="notification-dropdown" role="region" aria-label="Уведомления">
             <div class="notification-header">
               <span>Уведомления</span>
               <button v-if="unreadCount > 0" class="read-all-btn" @click="handleMarkAllRead">
@@ -55,7 +55,7 @@
           <span class="user-avatar">{{ userInitials }}</span>
           <span class="user-name">{{ currentUser?.username }}</span>
         </router-link>
-        <button @click="handleLogout" class="logout-button">Выйти</button>
+        <button @click="handleLogout" class="logout-button" aria-label="Выйти из системы">Выйти</button>
       </div>
     </header>
 

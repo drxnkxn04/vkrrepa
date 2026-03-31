@@ -117,9 +117,11 @@ router.beforeEach((to, from, next) => {
   if (requiresAuth) {
     if (!isAuthenticated) {
       // Пользователь не авторизован - перенаправляем на логин
+      // Сохраняем только внутренние пути (защита от open redirect)
+      const redirectPath = to.fullPath.startsWith('/') ? to.fullPath : '/';
       next({
         name: 'Login',
-        query: { redirect: to.fullPath }, // Сохраняем куда хотел перейти
+        query: { redirect: redirectPath },
       });
     } else if (requiresAdmin && !isAdmin) {
       // Пользователь авторизован, но не админ

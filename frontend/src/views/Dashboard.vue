@@ -300,6 +300,7 @@
 import LineChart from '@/components/charts/LineChart.vue';
 import DataInputModal from '@/components/DataInputModal.vue';
 import { kpiAPI, downloadPDF, extractResults } from '@/services/api';
+import { formatPeriod, formatCurrency } from '@/utils/formatters';
 
 export default {
   name: 'DashboardView',
@@ -485,7 +486,7 @@ export default {
         this.thresholdWarnings = data.threshold_warnings || [];
         this.kpiGroups = Object.values(data.group_scores);
         this.expandedGroups = Array(this.kpiGroups.length).fill(false);
-        await Promise.all([
+        await Promise.allSettled([
           this.loadPreviousPeriodData(),
           this.loadRecommendations(),
           this.loadValues(),
@@ -588,13 +589,9 @@ export default {
       return 'poor';
     },
     formatDate(period) {
-      const [year, month] = period.split('-');
-      const monthNames = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-      return `${monthNames[parseInt(month) - 1]} ${year}`;
+      return formatPeriod(period);
     },
-    formatCurrency(amount) {
-      return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
-    },
+    formatCurrency,
     async generateReport() {
       try {
         const response = await kpiAPI.generateReport(this.selectedPeriod);
