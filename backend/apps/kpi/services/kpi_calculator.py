@@ -41,7 +41,7 @@ class KpiCalculator:
         'низкий': 0.00,
     }
 
-    BASE_SALARY = 50000.0
+    BASE_SALARY = getattr(settings, 'KPI_BASE_SALARY', 50000.0)
     CACHE_TTL = getattr(settings, 'KPI_CACHE_TTL', 300)
 
     @staticmethod

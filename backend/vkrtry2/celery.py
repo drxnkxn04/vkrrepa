@@ -5,10 +5,9 @@ import os
 from celery import Celery
 from celery.schedules import crontab
 
-# ⚠️ ИСПРАВЛЕНО: было vktry2, должно быть vkrtry2
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'vkrtry2.settings')
 
-app = Celery('vkrtry2')  # ⚠️ И здесь тоже
+app = Celery('vkrtry2')
 
 app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()

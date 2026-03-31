@@ -109,7 +109,7 @@ def generate_monthly_reports(period=None):
         period: Период в формате 'YYYY-MM'
     """
     from django.contrib.auth import get_user_model
-    from .report_generator import KpiReportGenerator  # Будет создан отдельно
+    from .services import KpiReportGenerator
 
     User = get_user_model()
 

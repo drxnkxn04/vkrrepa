@@ -160,10 +160,10 @@ export default {
       this.unreadCount = 0;
     },
     notifIcon(type) {
-      if (type === 'submitted') return '📋';
-      if (type === 'approved') return '✅';
-      if (type === 'rejected') return '❌';
-      return '🔔';
+      if (type === 'submitted') return 'П';
+      if (type === 'approved') return 'ОК';
+      if (type === 'rejected') return '!';
+      return '·';
     },
     formatTime(dateStr) {
       const date = new Date(dateStr);

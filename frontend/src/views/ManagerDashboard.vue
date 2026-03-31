@@ -24,7 +24,7 @@
           >Все</button>
         </div>
         <button @click="exportData" class="btn btn-secondary">
-          📊 Экспорт
+          Экспорт
         </button>
       </div>
     </div>
@@ -40,7 +40,6 @@
       <!-- Общая статистика -->
       <div class="summary-cards">
         <div class="summary-card">
-          <div class="card-icon">👥</div>
           <div class="card-content">
             <h3>Всего сотрудников</h3>
             <p class="card-value">{{ users.length }}</p>
@@ -48,7 +47,6 @@
         </div>
 
         <div class="summary-card">
-          <div class="card-icon">⭐</div>
           <div class="card-content">
             <h3>Средний балл</h3>
             <p class="card-value">{{ averageScore.toFixed(1) }}%</p>
@@ -56,7 +54,6 @@
         </div>
 
         <div class="summary-card">
-          <div class="card-icon">🏆</div>
           <div class="card-content">
             <h3>Высокая эффективность</h3>
             <p class="card-value">{{ highPerformers }}</p>
@@ -65,7 +62,6 @@
         </div>
 
         <div class="summary-card">
-          <div class="card-icon">💰</div>
           <div class="card-content">
             <h3>Общий фонд премий</h3>
             <p class="card-value">{{ formatCurrency(totalBonus) }}</p>
@@ -79,7 +75,7 @@
           <input
             type="text"
             v-model="searchQuery"
-            placeholder="🔍 Поиск по имени или email..."
+            placeholder="Поиск по имени или email..."
             @input="debouncedFilterUsers"
           />
         </div>
@@ -122,202 +118,27 @@
       </div>
 
       <!-- Таблица сотрудников -->
-      <div class="users-table-card">
-        <h2>📊 Рейтинг сотрудников</h2>
-        <div class="table-responsive">
-          <table class="users-table">
-            <thead>
-              <tr>
-                <th class="rank-col">#</th>
-                <th>Сотрудник</th>
-                <th>Роль</th>
-                <th class="score-col">Балл KPI</th>
-                <th>Баллы</th>
-                <th>Уровень</th>
-                <th class="bonus-col">Бонус</th>
-                <th class="actions-col">Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(user, index) in filteredUsers" :key="user.user_id">
-                <td class="rank-col">
-                  <span class="rank-badge" :class="getRankClass(index)">
-                    {{ index + 1 }}
-                  </span>
-                </td>
-                <td class="user-col">
-                  <div class="user-info">
-                    <div class="user-avatar">
-                      {{ getInitials(user.full_name) }}
-                    </div>
-                    <div>
-                      <strong>{{ user.full_name }}</strong>
-                      <small>@{{ user.username }}</small>
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <span class="role-tag" :class="user.user_role || 'pps'">
-                    {{ user.user_role === 'rop' ? 'РОП' : 'ППС' }}
-                  </span>
-                </td>
-                <td class="score-col">
-                  <div class="score-wrapper">
-                    <div class="score-bar">
-                      <div 
-                        class="score-fill" 
-                        :style="{ width: user.total_score + '%' }"
-                        :class="getScoreClass(user.total_score)"
-                      ></div>
-                    </div>
-                    <span class="score-text">{{ user.total_score.toFixed(1) }}%</span>
-                  </div>
-                </td>
-                <td class="points-col">
-                  <span v-if="user.max_points">{{ (user.total_points || 0).toFixed(0) }}/{{ (user.max_points || 0).toFixed(0) }}</span>
-                  <span v-else>—</span>
-                </td>
-                <td>
-                  <span class="level-badge" :class="'level-' + user.performance_level">
-                    {{ formatLevel(user.performance_level) }}
-                  </span>
-                </td>
-                <td class="bonus-col">
-                  <strong>{{ formatCurrency(user.bonus_amount) }}</strong>
-                </td>
-                <td class="actions-col">
-                  <button 
-                    @click="viewUserDetails(user.user_id)" 
-                    class="btn-icon"
-                    title="Просмотр деталей"
-                  >
-                    👁️
-                  </button>
-                  <button
-                    @click="generateUserReport(user.user_id)"
-                    class="btn-icon"
-                    title="Скачать PDF отчёт"
-                  >
-                    📄
-                  </button>
-                  <button
-                    @click="generateUserExcelReport(user.user_id)"
-                    class="btn-icon"
-                    title="Скачать Excel отчёт"
-                  >
-                    📊
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <users-table
+        :users="filteredUsers"
+        @view-details="viewUserDetails"
+        @download-pdf="generateUserReport"
+        @download-excel="generateUserExcelReport"
+      />
 
       <!-- Блок на проверке -->
-      <div class="pending-card">
-        <div class="pending-header">
-          <h2>✋ На проверке</h2>
-          <span v-if="pendingValues.length > 0" class="pending-count">{{ pendingValues.length }} записей</span>
-        </div>
-
-        <!-- Панель массового действия -->
-        <transition name="bulk-bar">
-          <div v-if="selectedIds.length > 0" class="bulk-action-bar">
-            <span class="bulk-count">Выбрано: <b>{{ selectedIds.length }}</b></span>
-            <input
-              class="bulk-comment-input"
-              type="text"
-              v-model="bulkComment"
-              placeholder="Комментарий для всех (необязательно)"
-            />
-            <button class="btn btn-sm btn-approve" @click="bulkApprove">
-              ✓ Подтвердить ({{ selectedIds.length }})
-            </button>
-            <button class="btn btn-sm btn-reject" @click="bulkReject">
-              ✗ Отклонить ({{ selectedIds.length }})
-            </button>
-            <button class="btn btn-sm btn-outline-cancel" @click="selectedIds = []">Отмена</button>
-          </div>
-        </transition>
-
-        <div v-if="pendingLoading" class="pending-loading">Загрузка...</div>
-        <div v-else-if="pendingValues.length > 0" class="table-responsive">
-          <table class="pending-table">
-            <thead>
-              <tr>
-                <th class="cb-col">
-                  <input
-                    type="checkbox"
-                    :checked="selectedIds.length === pendingValues.length && pendingValues.length > 0"
-                    :indeterminate.prop="selectedIds.length > 0 && selectedIds.length < pendingValues.length"
-                    @change="toggleSelectAll"
-                  />
-                </th>
-                <th>Сотрудник</th>
-                <th>Показатель</th>
-                <th>Период</th>
-                <th>Факт</th>
-                <th>План</th>
-                <th>Документ</th>
-                <th>Комментарий сотрудника</th>
-                <th>Комментарий проверки</th>
-                <th>Решение</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="value in pendingValues"
-                :key="value.id"
-                :class="{ 'row-selected': selectedIds.includes(value.id) }"
-              >
-                <td class="cb-col">
-                  <input
-                    type="checkbox"
-                    :value="value.id"
-                    v-model="selectedIds"
-                  />
-                </td>
-                <td>{{ value.user?.full_name || value.user?.username || '—' }}</td>
-                <td>{{ value.indicator?.name || '—' }}</td>
-                <td>{{ formatPeriod(value.period) }}</td>
-                <td>{{ value.actual_value }}</td>
-                <td>{{ value.target_value }}</td>
-                <td>
-                  <a
-                    v-if="value.evidence"
-                    :href="value.evidence"
-                    target="_blank"
-                    class="evidence-link"
-                    title="Открыть документ"
-                  >
-                    📎 Открыть
-                  </a>
-                  <span v-else class="no-evidence">—</span>
-                </td>
-                <td class="employee-comment">{{ value.comment || '—' }}</td>
-                <td>
-                  <input
-                    class="review-input"
-                    type="text"
-                    v-model="reviewComments[value.id]"
-                    placeholder="Комментарий..."
-                  />
-                </td>
-                <td>
-                  <button class="btn btn-sm btn-approve" @click="approveValue(value)">✓</button>
-                  <button class="btn btn-sm btn-reject" @click="rejectValue(value)">✗</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-else class="pending-empty">✅ Нет записей на проверке</div>
-      </div>
+      <pending-values-table
+        ref="pendingTable"
+        :values="pendingValues"
+        :loading="pendingLoading"
+        @approve="onApproveValue"
+        @reject="onRejectValue"
+        @bulk-approve="onBulkApprove"
+        @bulk-reject="onBulkReject"
+      />
 
       <!-- Диаграмма распределения -->
       <div class="distribution-card">
-        <h2>📈 Распределение по уровням эффективности</h2>
+        <h2>Распределение по уровням эффективности</h2>
         <div class="distribution-chart">
           <div class="distribution-bar">
             <div 
@@ -359,7 +180,7 @@
 
     <!-- Пустое состояние -->
     <div v-else class="empty-state">
-      <div class="empty-icon">📊</div>
+      <div class="empty-icon"></div>
       <h2>Нет данных</h2>
       <p>Не найдено сотрудников за выбранный период</p>
       <div class="empty-hint">
@@ -370,100 +191,19 @@
           <li>Данные не прошли проверку</li>
         </ul>
         <button @click="loadPeriods" class="btn btn-primary">
-          🔄 Обновить список периодов
+          Обновить список периодов
         </button>
       </div>
     </div>
 
-    <div v-if="showUserDetails" class="modal-backdrop" @click.self="closeUserDetails">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>{{ selectedUser?.full_name || selectedUser?.username || 'Сотрудник' }}</h3>
-          <button class="close-button" @click="closeUserDetails" title="Закрыть">&times;</button>
-        </div>
-
-        <!-- Сводка по сотруднику -->
-        <div v-if="selectedUser" class="user-summary">
-          <div class="summary-item">
-            <span class="summary-label">Балл KPI</span>
-            <span class="summary-value" :class="getScoreClass(selectedUser.total_score)">
-              {{ selectedUser.total_score?.toFixed(1) }}%
-            </span>
-          </div>
-          <div class="summary-item">
-            <span class="summary-label">Уровень</span>
-            <span class="level-badge" :class="'level-' + selectedUser.performance_level">
-              {{ formatLevel(selectedUser.performance_level) }}
-            </span>
-          </div>
-          <div class="summary-item">
-            <span class="summary-label">Бонус</span>
-            <span class="summary-value">{{ formatCurrency(selectedUser.bonus_amount) }}</span>
-          </div>
-          <div class="summary-item">
-            <span class="summary-label">Роль</span>
-            <span class="role-tag" :class="selectedUser.user_role || 'pps'">
-              {{ selectedUser.user_role === 'rop' ? 'РОП' : 'ППС' }}
-            </span>
-          </div>
-        </div>
-
-        <div v-if="userDetailsLoading" class="pending-loading">Загрузка...</div>
-        <div v-else-if="selectedUserValues.length === 0" class="pending-empty">
-          Нет данных за выбранный период.
-        </div>
-        <div v-else class="table-responsive">
-          <table class="pending-table detail-table">
-            <thead>
-              <tr>
-                <th>Показатель</th>
-                <th>Факт / План</th>
-                <th>Выполнение</th>
-                <th>Статус</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="value in selectedUserValues" :key="value.id">
-                <td>
-                  <div class="detail-indicator">
-                    <span class="detail-ind-name">{{ value.indicator?.name || '-' }}</span>
-                    <span class="detail-ind-group">{{ value.indicator?.group?.name || '' }}</span>
-                  </div>
-                </td>
-                <td class="detail-values">
-                  <strong>{{ value.actual_value }}</strong>
-                  <span class="detail-separator">/</span>
-                  <span class="detail-target">{{ value.target_value }}</span>
-                </td>
-                <td>
-                  <div class="detail-progress">
-                    <div class="detail-bar">
-                      <div
-                        class="detail-bar-fill"
-                        :class="getScoreClass(calcPercent(value))"
-                        :style="{ width: Math.min(calcPercent(value), 100) + '%' }"
-                      ></div>
-                    </div>
-                    <span class="detail-percent">{{ calcPercent(value).toFixed(0) }}%</span>
-                  </div>
-                </td>
-                <td>
-                  <span class="status-badge" :class="'status-' + value.status">
-                    {{ formatStatusText(value.status) }}
-                  </span>
-                </td>
-                <td>
-                  <button class="btn btn-sm btn-outline" @click="openValueLogs(value)">
-                    Лог
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+    <user-details-modal
+      :visible="showUserDetails"
+      :user="selectedUser"
+      :values="selectedUserValues"
+      :loading="userDetailsLoading"
+      @close="closeUserDetails"
+      @open-logs="openValueLogs"
+    />
 
     <!-- Модалка истории изменений -->
     <div v-if="showLogsModal" class="modal-backdrop logs-backdrop" @click.self="showLogsModal = false">
@@ -513,11 +253,14 @@
 <script>
 import { kpiAPI, downloadPDF, extractResults } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import UsersTable from '@/components/manager/UsersTable.vue';
+import PendingValuesTable from '@/components/manager/PendingValuesTable.vue';
+import UserDetailsModal from '@/components/manager/UserDetailsModal.vue';
 import { formatPeriod, formatCurrency } from '@/utils/formatters';
 
 export default {
   name: 'ManagerDashboardView',
-  components: { ConfirmDialog },
+  components: { ConfirmDialog, UsersTable, PendingValuesTable, UserDetailsModal },
   data() {
     return {
       selectedPeriod: '',
@@ -531,9 +274,6 @@ export default {
       sortBy: 'score-desc',
       pendingValues: [],
       pendingLoading: false,
-      reviewComments: {},
-      selectedIds: [],
-      bulkComment: '',
       showUserDetails: false,
       selectedUser: null,
       selectedUserValues: [],
@@ -685,51 +425,8 @@ export default {
         this.pendingLoading = false;
       }
     },
-    toggleSelectAll(e) {
-      if (e.target.checked) {
-        this.selectedIds = this.pendingValues.map(v => v.id);
-      } else {
-        this.selectedIds = [];
-      }
-    },
-    async bulkApprove() {
-      if (!this.selectedIds.length) return;
+    async onApproveValue({ value, comment }) {
       try {
-        const res = await kpiAPI.bulkApprove(this.selectedIds, this.bulkComment);
-        this.$toast.success(`Подтверждено: ${res.data.approved}`);
-        this.selectedIds = [];
-        this.bulkComment = '';
-        await this.loadData();
-      } catch (error) {
-        console.error('Ошибка массового подтверждения:', error);
-        this.$toast.error('Не удалось подтвердить');
-      }
-    },
-    bulkReject() {
-      if (!this.selectedIds.length) return;
-      const count = this.selectedIds.length;
-      this.showConfirm({
-        title: 'Массовое отклонение',
-        message: `Вы уверены, что хотите отклонить ${count} ${count === 1 ? 'запись' : 'записей'}?`,
-        confirmText: 'Отклонить',
-        danger: true,
-        action: async () => {
-          try {
-            const res = await kpiAPI.bulkReject(this.selectedIds, this.bulkComment);
-            this.$toast.success(`Отклонено: ${res.data.rejected}`);
-            this.selectedIds = [];
-            this.bulkComment = '';
-            await this.loadData();
-          } catch (error) {
-            console.error('Ошибка массового отклонения:', error);
-            this.$toast.error('Не удалось отклонить');
-          }
-        },
-      });
-    },
-    async approveValue(value) {
-      try {
-        const comment = this.reviewComments[value.id] || '';
         await kpiAPI.approveValue(value.id, comment);
         this.$toast.success('Запись подтверждена');
         await this.loadData();
@@ -738,8 +435,7 @@ export default {
         this.$toast.error('Не удалось подтвердить');
       }
     },
-    rejectValue(value) {
-      const comment = this.reviewComments[value.id] || '';
+    onRejectValue({ value, comment }) {
       if (!comment) {
         this.$toast.warning('Укажите причину отклонения');
         return;
@@ -758,6 +454,37 @@ export default {
             await this.loadData();
           } catch (error) {
             console.error('Ошибка отклонения:', error);
+            this.$toast.error('Не удалось отклонить');
+          }
+        },
+      });
+    },
+    async onBulkApprove({ ids, comment }) {
+      try {
+        const res = await kpiAPI.bulkApprove(ids, comment);
+        this.$toast.success(`Подтверждено: ${res.data.approved}`);
+        this.$refs.pendingTable?.clearSelection();
+        await this.loadData();
+      } catch (error) {
+        console.error('Ошибка массового подтверждения:', error);
+        this.$toast.error('Не удалось подтвердить');
+      }
+    },
+    onBulkReject({ ids, comment }) {
+      const count = ids.length;
+      this.showConfirm({
+        title: 'Массовое отклонение',
+        message: `Вы уверены, что хотите отклонить ${count} ${count === 1 ? 'запись' : 'записей'}?`,
+        confirmText: 'Отклонить',
+        danger: true,
+        action: async () => {
+          try {
+            const res = await kpiAPI.bulkReject(ids, comment);
+            this.$toast.success(`Отклонено: ${res.data.rejected}`);
+            this.$refs.pendingTable?.clearSelection();
+            await this.loadData();
+          } catch (error) {
+            console.error('Ошибка массового отклонения:', error);
             this.$toast.error('Не удалось отклонить');
           }
         },
@@ -786,34 +513,6 @@ export default {
     },
     formatPeriod,
     formatCurrency,
-    formatLevel(level) {
-      const levels = {
-        'высокий': 'Высокая',
-        'средний': 'Средняя',
-        'низкий': 'Низкая'
-      };
-      return levels[level] || level;
-    },
-    getScoreClass(score) {
-      if (score >= 90) return 'excellent';
-      if (score >= 70) return 'good';
-      if (score >= 50) return 'medium';
-      return 'poor';
-    },
-    getRankClass(index) {
-      if (index === 0) return 'gold';
-      if (index === 1) return 'silver';
-      if (index === 2) return 'bronze';
-      return '';
-    },
-    getInitials(fullName) {
-      return (fullName || 'User')
-        .split(' ')
-        .map(word => word[0] || '')
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
-    },
     async viewUserDetails(userId) {
       this.showUserDetails = true;
       this.userDetailsLoading = true;
@@ -899,14 +598,6 @@ export default {
       this.showUserDetails = false;
       this.selectedUser = null;
       this.selectedUserValues = [];
-    },
-    calcPercent(value) {
-      if (!value.target_value || value.target_value === 0) return 0;
-      return (value.actual_value / value.target_value) * 100;
-    },
-    formatStatusText(status) {
-      const map = { draft: 'Черновик', submitted: 'На проверке', approved: 'Подтверждено', rejected: 'Отклонено' };
-      return map[status] || status || '-';
     },
     async openValueLogs(value) {
       this.showLogsModal = true;

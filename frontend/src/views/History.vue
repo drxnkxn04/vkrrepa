@@ -237,12 +237,12 @@
         return this.history.reduce((acc, item) => acc + item.bonus_amount, 0);
       },
       trendIcon() {
-        if (this.history.length < 2) return '➡️';
+        if (this.history.length < 2) return '\u2192';
         const recent = this.history[0].total_score;
         const old = this.history[this.history.length - 1].total_score;
-        if (recent > old) return '';
-        if (recent < old) return '';
-        return '➡️';
+        if (recent > old) return '\u2191';
+        if (recent < old) return '\u2193';
+        return '\u2192';
       },
       trendClass() {
         if (this.history.length < 2) return '';

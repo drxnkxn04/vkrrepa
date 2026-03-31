@@ -44,7 +44,6 @@
           class="action-item"
           :class="item.type"
         >
-          <span class="action-icon">{{ item.icon }}</span>
           <div class="action-text">
             <strong>{{ item.title }}</strong>
             <span>{{ item.description }}</span>
@@ -364,7 +363,6 @@ export default {
       if (rejected.length > 0) {
         items.push({
           type: 'rejected',
-          icon: '❌',
           title: `${rejected.length} ${rejected.length === 1 ? 'запись отклонена' : 'записей отклонено'}`,
           description: 'Исправьте данные и отправьте повторно',
           buttonText: 'Исправить',
@@ -379,7 +377,6 @@ export default {
       if (drafts.length > 0) {
         items.push({
           type: 'draft',
-          icon: '📝',
           title: `${drafts.length} ${drafts.length === 1 ? 'черновик' : 'черновиков'} не отправлено`,
           description: 'Отправьте на проверку руководителю',
           buttonText: 'Перейти',
@@ -395,7 +392,6 @@ export default {
         const names = emptyGroups.map(g => g.name).join(', ');
         items.push({
           type: 'empty',
-          icon: '📊',
           title: `Нет данных по ${emptyGroups.length} ${emptyGroups.length === 1 ? 'направлению' : 'направлениям'}`,
           description: names,
           buttonText: '+ Добавить',

@@ -169,6 +169,9 @@ else:
 # Время жизни кэша дашборда (в секундах)
 KPI_CACHE_TTL = int(os.getenv('KPI_CACHE_TTL', '300'))  # 5 минут
 
+# Базовая ставка для расчёта премии (рублей)
+KPI_BASE_SALARY = float(os.getenv('KPI_BASE_SALARY', '50000'))
+
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
@@ -251,7 +254,7 @@ CROSSREF_USER_AGENT = os.getenv(
 # Crossref дает приоритет "вежливым" клиентам, которые предоставляют email
 CROSSREF_MAILTO = os.getenv(
     'CROSSREF_MAILTO',
-    'drynkin.ivan@inbox.ru'  # ⚠️ ЗАМЕНИТЕ НА РЕАЛЬНЫЙ EMAIL!
+    'drynkin.ivan@inbox.ru'
 )
 
 # Таймауты для запросов к Crossref API (в секундах)

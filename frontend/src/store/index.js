@@ -70,6 +70,11 @@ const store = createStore({
     error: (state) => {
       return state.error;
     },
+
+    // Кэшированные индикаторы для ручного ввода
+    manualIndicators: (state) => {
+      return state.manualIndicators;
+    },
   },
   
   mutations: {

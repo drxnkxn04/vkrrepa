@@ -91,7 +91,7 @@
                 Нажмите чтобы прикрепить файл (PDF, Word, изображение)
               </span>
               <span v-else class="file-selected">
-                📎 {{ selectedFile.name }}
+                {{ selectedFile.name }}
                 <button type="button" class="file-remove" @click.stop="selectedFile = null">✕</button>
               </span>
             </div>
