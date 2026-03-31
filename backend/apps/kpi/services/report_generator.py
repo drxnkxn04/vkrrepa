@@ -509,6 +509,246 @@ class KpiReportGenerator:
         buffer.seek(0)
         return buffer
 
+    # ──────────────────────────────────────────────────────────────
+    # Сводный PDF по всем сотрудникам
+    # ──────────────────────────────────────────────────────────────
+    def generate_summary_report(self, period: str, role_filter: str = 'pps') -> BytesIO:
+        """Сводный PDF-отчёт по всем сотрудникам за период."""
+        from ..models import get_user_kpi_role
+
+        users = User.objects.filter(
+            is_active=True, is_superuser=False
+        ).select_related('profile').order_by('last_name', 'first_name')
+
+        if role_filter == 'pps':
+            users = users.filter(is_staff=False)
+        elif role_filter == 'rop':
+            users = users.filter(is_staff=True)
+
+        # Собираем данные
+        rows_data = []
+        total_bonus = 0
+        scores = []
+        for user in users:
+            kpi = self.calculator.calculate_total_score(user.id, period)
+            rows_data.append({
+                'user': user,
+                'role': get_user_kpi_role(user),
+                'score': kpi['total_score'],
+                'points': kpi.get('total_points', 0),
+                'max_points': kpi.get('max_points', 0),
+                'level': kpi['performance_level'],
+                'bonus': kpi['bonus_amount'],
+            })
+            total_bonus += kpi['bonus_amount']
+            scores.append(kpi['total_score'])
+
+        rows_data.sort(key=lambda x: x['score'], reverse=True)
+        avg_score = sum(scores) / len(scores) if scores else 0
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            rightMargin=1.5*cm, leftMargin=1.5*cm,
+            topMargin=1.5*cm, bottomMargin=1.5*cm,
+            title=f'Сводный отчёт KPI — {self._fmt_period(period)}',
+        )
+
+        story = []
+
+        # Шапка
+        title_para = Paragraph('СВОДНЫЙ ОТЧЁТ ПО KPI', self.styles['DocTitle'])
+        sub_para = Paragraph(
+            f'{self._fmt_period(period)} &nbsp;·&nbsp; '
+            f'Сотрудников: {len(rows_data)} &nbsp;·&nbsp; '
+            f'Сформирован: {datetime.now().strftime("%d.%m.%Y")}',
+            self.styles['DocSubtitle']
+        )
+        header_table = Table([[title_para], [sub_para]], colWidths=[17*cm])
+        header_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), BLUE),
+            ('TOPPADDING', (0,0), (-1,-1), 18),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 18),
+            ('LEFTPADDING', (0,0), (-1,-1), 12),
+            ('RIGHTPADDING', (0,0), (-1,-1), 12),
+            ('ROUNDEDCORNERS', [6]),
+        ]))
+        story.append(header_table)
+        story.append(Spacer(1, 0.5*cm))
+
+        # Сводка
+        high = sum(1 for r in rows_data if r['level'] == 'высокий')
+        med = sum(1 for r in rows_data if r['level'] == 'средний')
+        low = sum(1 for r in rows_data if r['level'] == 'низкий')
+
+        summary_rows = [
+            [Paragraph('<b>Показатель</b>', self.styles['Body']),
+             Paragraph('<b>Значение</b>', self.styles['Body'])],
+            ['Средний балл KPI', f"{avg_score:.1f}%"],
+            ['Высокая эффективность', f"{high} чел."],
+            ['Средняя эффективность', f"{med} чел."],
+            ['Низкая эффективность', f"{low} чел."],
+            ['Общий фонд премий', f"{total_bonus:,.0f} руб."],
+        ]
+        st = Table(summary_rows, colWidths=[9*cm, 8*cm])
+        st.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0), DARK),
+            ('TEXTCOLOR',     (0,0), (-1,0), WHITE),
+            ('FONTNAME',      (0,0), (-1,0), self.font_bold),
+            ('FONTNAME',      (0,1), (-1,-1), self.font),
+            ('FONTSIZE',      (0,0), (-1,-1), 10),
+            ('ALIGN',         (1,0), (1,-1), 'CENTER'),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, GRAY_BG]),
+            ('GRID',          (0,0), (-1,-1), 0.5, GRAY_LINE),
+            ('TOPPADDING',    (0,0), (-1,-1), 7),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 7),
+        ]))
+        story += [
+            Paragraph('1. Общая статистика', self.styles['SectionHead']),
+            st,
+            Spacer(1, 0.5*cm),
+        ]
+
+        # Рейтинг сотрудников
+        story.append(Paragraph('2. Рейтинг сотрудников', self.styles['SectionHead']))
+
+        table_rows = [
+            [Paragraph(f'<b>{h}</b>', self.styles['Small']) for h in
+             ['#', 'Сотрудник', 'Роль', 'Балл KPI', 'Баллы', 'Уровень', 'Премия']],
+        ]
+        for i, row in enumerate(rows_data, 1):
+            sc = row['score']
+            role_label = 'РОП' if row['role'] == 'rop' else 'ППС'
+            pts = f"{row['points']:.0f}/{row['max_points']:.0f}" if row['max_points'] > 0 else '—'
+            table_rows.append([
+                str(i),
+                Paragraph(row['user'].get_full_name() or row['user'].username, self.styles['Body']),
+                role_label,
+                Paragraph(f"<font color='{_score_color(sc).hexval()}'><b>{sc:.1f}%</b></font>",
+                          self.styles['Body']),
+                pts,
+                self._fmt_level(row['level']),
+                f"{row['bonus']:,.0f} руб.",
+            ])
+
+        t = Table(table_rows, colWidths=[1*cm, 5*cm, 1.8*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.7*cm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0), DARK),
+            ('TEXTCOLOR',     (0,0), (-1,0), WHITE),
+            ('FONTNAME',      (0,0), (-1,0), self.font_bold),
+            ('FONTNAME',      (0,1), (-1,-1), self.font),
+            ('FONTSIZE',      (0,0), (-1,-1), 9),
+            ('ALIGN',         (0,0), (0,-1), 'CENTER'),
+            ('ALIGN',         (3,0), (-1,-1), 'CENTER'),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [WHITE, GRAY_BG]),
+            ('GRID',          (0,0), (-1,-1), 0.4, GRAY_LINE),
+            ('TOPPADDING',    (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ]))
+        story += [t, Spacer(1, 0.5*cm)]
+        story += self._footer_note()
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    # ──────────────────────────────────────────────────────────────
+    # Сводный Excel по всем сотрудникам
+    # ──────────────────────────────────────────────────────────────
+    def generate_summary_excel(self, period: str, role_filter: str = 'pps') -> BytesIO:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from ..models import get_user_kpi_role
+
+        users = User.objects.filter(
+            is_active=True, is_superuser=False
+        ).select_related('profile').order_by('last_name', 'first_name')
+
+        if role_filter == 'pps':
+            users = users.filter(is_staff=False)
+        elif role_filter == 'rop':
+            users = users.filter(is_staff=True)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Сводка KPI'
+
+        hdr_font = Font(bold=True, color='FFFFFF', size=11)
+        hdr_fill = PatternFill('solid', fgColor='1A73E8')
+        center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        left = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        thin = Side(style='thin', color='DEE2E6')
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        gray_fill = PatternFill('solid', fgColor='F5F7FA')
+
+        # Заголовок
+        ws.merge_cells('A1:G1')
+        title_cell = ws['A1']
+        title_cell.value = f'Сводный отчёт KPI — {self._fmt_period(period)}'
+        title_cell.font = Font(bold=True, size=14, color='1A73E8')
+        title_cell.alignment = center
+        ws.row_dimensions[1].height = 30
+        ws.cell(row=2, column=1, value=f'Сформирован: {datetime.now().strftime("%d.%m.%Y %H:%M")}')
+        ws.cell(row=2, column=1).font = Font(size=9, color='6C757D')
+
+        # Шапка таблицы
+        headers = ['#', 'Сотрудник', 'Роль', 'Балл KPI (%)', 'Баллы', 'Уровень', 'Премия (руб.)']
+        for i, h in enumerate(headers, 1):
+            c = ws.cell(row=4, column=i, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = center
+            c.border = border
+
+        # Данные
+        rows_data = []
+        for user in users:
+            kpi = self.calculator.calculate_total_score(user.id, period)
+            rows_data.append({
+                'name': user.get_full_name() or user.username,
+                'role': 'РОП' if get_user_kpi_role(user) == 'rop' else 'ППС',
+                'score': kpi['total_score'],
+                'points': kpi.get('total_points', 0),
+                'max_points': kpi.get('max_points', 0),
+                'level': self._fmt_level(kpi['performance_level']),
+                'bonus': kpi['bonus_amount'],
+            })
+        rows_data.sort(key=lambda x: x['score'], reverse=True)
+
+        for i, row in enumerate(rows_data, 1):
+            r = i + 4
+            fill = gray_fill if i % 2 == 0 else None
+            pts = f"{row['points']:.0f}/{row['max_points']:.0f}" if row['max_points'] > 0 else '—'
+            values = [i, row['name'], row['role'], round(row['score'], 1), pts, row['level'], round(row['bonus'], 0)]
+            for j, v in enumerate(values, 1):
+                c = ws.cell(row=r, column=j, value=v)
+                c.font = Font(size=10)
+                c.alignment = left if j == 2 else center
+                c.border = border
+                if fill:
+                    c.fill = fill
+
+            # Цвет балла
+            score_cell = ws.cell(row=r, column=4)
+            sc = row['score']
+            if sc >= 90:
+                score_cell.fill = PatternFill('solid', fgColor='D4EDDA')
+                score_cell.font = Font(color='155724', bold=True)
+            elif sc >= 70:
+                score_cell.fill = PatternFill('solid', fgColor='FFF3CD')
+                score_cell.font = Font(color='856404', bold=True)
+            else:
+                score_cell.fill = PatternFill('solid', fgColor='F8D7DA')
+                score_cell.font = Font(color='721C24', bold=True)
+
+        for col, w in zip(['A','B','C','D','E','F','G'], [5, 30, 8, 14, 14, 22, 16]):
+            ws.column_dimensions[col].width = w
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer
+
     # Оставляем совместимость
     def generate_user_report(self, user_id: int, period: str) -> str:
         return self.generate_report_response(user_id, period)

@@ -157,6 +157,29 @@ class KpiValueLog(models.Model):
         return f"{self.kpi_value} — {self.get_action_display()} ({self.created_at:%d.%m.%Y %H:%M})"
 
 
+class KpiTarget(models.Model):
+    """Индивидуальные плановые значения, назначаемые руководителем."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kpi_targets')
+    indicator = models.ForeignKey(KpiIndicator, on_delete=models.CASCADE, related_name='targets')
+    period = models.CharField(max_length=7, verbose_name='Период (ГГГГ-ММ)')
+    target_value = models.FloatField(verbose_name='Плановое значение')
+    set_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True,
+        related_name='assigned_targets', verbose_name='Назначил'
+    )
+    comment = models.TextField(blank=True, verbose_name='Комментарий')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'indicator', 'period')
+        verbose_name = 'Индивидуальный план KPI'
+        verbose_name_plural = 'Индивидуальные планы KPI'
+
+    def __str__(self):
+        return f"{self.user} - {self.indicator} ({self.period}): {self.target_value}"
+
+
 class KpiRecommendation(models.Model):
     """Рекомендации по улучшению KPI"""
     PRIORITY_HIGH = 'high'

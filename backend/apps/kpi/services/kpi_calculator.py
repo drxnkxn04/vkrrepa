@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, UserProfile, get_user_kpi_role
+from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, KpiTarget, UserProfile, get_user_kpi_role
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -177,6 +177,19 @@ class KpiCalculator:
             'indicators': indicator_results,
         }
 
+    def _get_target_value(self, user_id: int, indicator: KpiIndicator, period: str) -> float:
+        """
+        Определяет плановое значение для показателя.
+        Приоритет: индивидуальный план (KpiTarget) > значение из KpiValue > значение по умолчанию (indicator.max_value).
+        """
+        try:
+            target = KpiTarget.objects.get(
+                user_id=user_id, indicator=indicator, period=period
+            )
+            return float(target.target_value)
+        except KpiTarget.DoesNotExist:
+            return float(indicator.max_value) if indicator.max_value > 0 else 1.0
+
     def _calculate_indicator_completion(
             self,
             user_id: int,
@@ -184,6 +197,9 @@ class KpiCalculator:
             period: str
     ) -> Dict:
         """Расчет процента выполнения для отдельного показателя."""
+        # Плановое значение: индивидуальный план > значение из indicator
+        default_target = self._get_target_value(user_id, indicator, period)
+
         try:
             kpi_value = KpiValue.objects.get(
                 user_id=user_id,
@@ -192,10 +208,12 @@ class KpiCalculator:
                 status=KpiValue.STATUS_APPROVED
             )
             actual_value = float(kpi_value.actual_value)
-            target_value = float(kpi_value.target_value)
+            # Если в KpiValue задан target_value и он > 0, используем его;
+            # иначе берём из индивидуального плана / умолчания
+            target_value = float(kpi_value.target_value) if kpi_value.target_value > 0 else default_target
         except KpiValue.DoesNotExist:
             actual_value = 0.0
-            target_value = float(indicator.max_value) if indicator.max_value > 0 else 1.0
+            target_value = default_target
 
         if target_value > 0:
             completion_percent = min((actual_value / target_value) * 100, 100.0)

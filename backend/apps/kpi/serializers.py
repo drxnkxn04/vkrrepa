@@ -1,5 +1,8 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from .models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommendation, Notification
+from .models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommendation, Notification, KpiTarget
+
+User = get_user_model()
 
 
 class KpiIndicatorSerializer(serializers.ModelSerializer):
@@ -83,6 +86,39 @@ class KpiRecommendationSerializer(serializers.ModelSerializer):
         model = KpiRecommendation
         fields = '__all__'
         read_only_fields = ('user', 'created_at')
+
+
+class KpiTargetSerializer(serializers.ModelSerializer):
+    indicator = KpiIndicatorSerializer(read_only=True)
+    indicator_id = serializers.PrimaryKeyRelatedField(
+        queryset=KpiIndicator.objects.all(),
+        source='indicator',
+        write_only=True
+    )
+    user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='user',
+        write_only=True
+    )
+    user_name = serializers.SerializerMethodField()
+    set_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KpiTarget
+        fields = [
+            'id', 'user', 'user_id', 'user_name', 'indicator', 'indicator_id',
+            'period', 'target_value', 'set_by', 'set_by_name', 'comment',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ('user', 'set_by', 'created_at', 'updated_at')
+
+    def get_user_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+
+    def get_set_by_name(self, obj):
+        if not obj.set_by:
+            return None
+        return obj.set_by.get_full_name() or obj.set_by.username
 
 
 class NotificationSerializer(serializers.ModelSerializer):

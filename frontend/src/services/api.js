@@ -312,6 +312,40 @@ export const kpiAPI = {
       params: { period, limit },
     });
   },
+
+  // === Сводные отчёты ===
+  generateSummaryReport(period, role = 'pps') {
+    return apiClient.get('/kpi/reports/summary/', {
+      params: { period, role },
+      responseType: 'blob',
+    });
+  },
+
+  generateSummaryExcel(period, role = 'pps') {
+    return apiClient.get('/kpi/reports/summary-excel/', {
+      params: { period, role },
+      responseType: 'blob',
+    });
+  },
+
+  // === Индивидуальные планы ===
+  getTargets(period, userId) {
+    const params = { period };
+    if (userId) params.user_id = userId;
+    return apiClient.get('/kpi/targets/', { params });
+  },
+
+  setTarget(data) {
+    return apiClient.post('/kpi/targets/', data);
+  },
+
+  deleteTarget(id) {
+    return apiClient.delete(`/kpi/targets/${id}/`);
+  },
+
+  bulkSetTargets(targets) {
+    return apiClient.post('/kpi/targets/bulk_set/', { targets });
+  },
 };
 
 // Вспомогательная функция для скачивания PDF

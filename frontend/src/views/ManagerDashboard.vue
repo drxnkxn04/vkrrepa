@@ -24,7 +24,13 @@
           >Все</button>
         </div>
         <button @click="exportData" class="btn btn-secondary">
-          Экспорт
+          Экспорт CSV
+        </button>
+        <button @click="downloadSummaryPdf" class="btn btn-secondary">
+          Сводный PDF
+        </button>
+        <button @click="downloadSummaryExcel" class="btn btn-secondary">
+          Сводный Excel
         </button>
       </div>
     </div>
@@ -118,6 +124,12 @@
       </div>
 
       <!-- Таблица сотрудников -->
+      <div class="section-header">
+        <h2>Рейтинг сотрудников</h2>
+        <button @click="openTargetsModal" class="btn btn-primary btn-sm">
+          Назначить планы
+        </button>
+      </div>
       <users-table
         :users="filteredUsers"
         @view-details="viewUserDetails"
@@ -238,6 +250,66 @@
       </div>
     </div>
 
+    <!-- Модалка индивидуальных планов -->
+    <div v-if="showTargetsModal" class="modal-backdrop" @click.self="showTargetsModal = false">
+      <div class="modal-card targets-modal">
+        <div class="modal-header">
+          <h3>Индивидуальные планы на {{ formatPeriod(selectedPeriod) }}</h3>
+          <button class="close-button" @click="showTargetsModal = false">&times;</button>
+        </div>
+
+        <div class="targets-controls">
+          <label>Сотрудник:</label>
+          <select v-model="targetUserId" @change="loadTargetsForUser">
+            <option disabled value="">Выберите сотрудника</option>
+            <option v-for="u in users" :key="u.user_id" :value="u.user_id">
+              {{ u.full_name }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="targetUserId && targetIndicators.length > 0" class="targets-table-wrap">
+          <table class="pending-table">
+            <thead>
+              <tr>
+                <th>Показатель</th>
+                <th>План по умолчанию</th>
+                <th>Индивидуальный план</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="ind in targetIndicators" :key="ind.id">
+                <td>
+                  <div class="detail-indicator">
+                    <span class="detail-ind-name">{{ ind.name }}</span>
+                    <span class="detail-ind-group">{{ ind.group_name }}</span>
+                  </div>
+                </td>
+                <td class="text-center">{{ ind.default_target }}</td>
+                <td>
+                  <input
+                    type="number"
+                    class="review-input"
+                    v-model.number="ind.custom_target"
+                    step="any"
+                    min="0"
+                    :placeholder="String(ind.default_target)"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="targets-actions">
+            <button class="btn btn-primary" @click="saveTargets" :disabled="targetsSaving">
+              {{ targetsSaving ? 'Сохранение...' : 'Сохранить планы' }}
+            </button>
+          </div>
+        </div>
+        <div v-else-if="targetUserId" class="pending-loading">Загрузка показателей...</div>
+        <div v-else class="pending-empty">Выберите сотрудника</div>
+      </div>
+    </div>
+
     <confirm-dialog
       :visible="confirmDialog.visible"
       :title="confirmDialog.title"
@@ -252,6 +324,7 @@
 
 <script>
 import { kpiAPI, downloadPDF, extractResults } from '@/services/api';
+import { getScoreClass } from '@/utils/formatters';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import UsersTable from '@/components/manager/UsersTable.vue';
 import PendingValuesTable from '@/components/manager/PendingValuesTable.vue';
@@ -289,6 +362,11 @@ export default {
         danger: false,
         action: null,
       },
+      // Индивидуальные планы
+      showTargetsModal: false,
+      targetUserId: '',
+      targetIndicators: [],
+      targetsSaving: false,
     };
   },
   computed: {
@@ -628,6 +706,102 @@ export default {
         await this.confirmDialog.action();
       }
       this.confirmDialog.visible = false;
+    },
+
+    // === Сводные отчёты ===
+    async downloadSummaryPdf() {
+      try {
+        const response = await kpiAPI.generateSummaryReport(this.selectedPeriod, this.roleFilter);
+        downloadPDF(response.data, `KPI_Summary_${this.selectedPeriod}.pdf`);
+        this.$toast.success('Сводный PDF-отчёт сгенерирован');
+      } catch (error) {
+        console.error('Summary PDF error:', error);
+        this.$toast.error('Ошибка генерации сводного PDF');
+      }
+    },
+    async downloadSummaryExcel() {
+      try {
+        const response = await kpiAPI.generateSummaryExcel(this.selectedPeriod, this.roleFilter);
+        downloadPDF(response.data, `KPI_Summary_${this.selectedPeriod}.xlsx`);
+        this.$toast.success('Сводный Excel-отчёт загружен');
+      } catch (error) {
+        console.error('Summary Excel error:', error);
+        this.$toast.error('Ошибка генерации сводного Excel');
+      }
+    },
+
+    // === Индивидуальные планы ===
+    openTargetsModal() {
+      this.showTargetsModal = true;
+      this.targetUserId = '';
+      this.targetIndicators = [];
+    },
+    async loadTargetsForUser() {
+      if (!this.targetUserId) return;
+      this.targetIndicators = [];
+
+      try {
+        // Загружаем группы и показатели
+        const groupsRes = await kpiAPI.getGroups();
+        const groups = Array.isArray(groupsRes.data) ? groupsRes.data : groupsRes.data.results || [];
+
+        // Загружаем существующие планы
+        const targetsRes = await kpiAPI.getTargets(this.selectedPeriod, this.targetUserId);
+        const existingTargets = extractResults(targetsRes.data);
+        const targetsMap = {};
+        for (const t of existingTargets) {
+          targetsMap[t.indicator?.id] = t;
+        }
+
+        // Формируем список показателей
+        const indicators = [];
+        for (const group of groups) {
+          for (const ind of (group.indicators || [])) {
+            const existing = targetsMap[ind.id];
+            indicators.push({
+              id: ind.id,
+              name: ind.name,
+              group_name: group.name,
+              default_target: ind.max_value || 0,
+              custom_target: existing ? existing.target_value : null,
+              existing_id: existing ? existing.id : null,
+            });
+          }
+        }
+        this.targetIndicators = indicators;
+      } catch (error) {
+        console.error('Error loading targets:', error);
+        this.$toast.error('Не удалось загрузить показатели');
+      }
+    },
+    async saveTargets() {
+      this.targetsSaving = true;
+      try {
+        const targets = this.targetIndicators
+          .filter(ind => ind.custom_target !== null && ind.custom_target !== '' && ind.custom_target !== ind.default_target)
+          .map(ind => ({
+            user_id: this.targetUserId,
+            indicator_id: ind.id,
+            period: this.selectedPeriod,
+            target_value: ind.custom_target,
+          }));
+
+        if (targets.length === 0) {
+          this.$toast.info('Нет изменений для сохранения');
+          this.targetsSaving = false;
+          return;
+        }
+
+        const res = await kpiAPI.bulkSetTargets(targets);
+        this.$toast.success(`Планы сохранены: создано ${res.data.created}, обновлено ${res.data.updated}`);
+        this.showTargetsModal = false;
+        await this.loadData();
+      } catch (error) {
+        console.error('Error saving targets:', error);
+        this.$toast.error('Ошибка сохранения планов');
+      } finally {
+        this.targetsSaving = false;
+      }
     },
   }
 };
@@ -1278,6 +1452,53 @@ export default {
   margin-top: 6px; font-size: 0.85rem; color: #6b7280;
   font-style: italic; background: #fef3c7; padding: 6px 10px; border-radius: 4px;
 }
+
+/* Section header */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.section-header h2 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+/* Targets modal */
+.targets-modal {
+  width: min(1000px, 95%);
+}
+.targets-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px 16px;
+}
+.targets-controls select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.92rem;
+}
+.targets-controls label {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: #444;
+  white-space: nowrap;
+}
+.targets-table-wrap {
+  padding: 0 20px 20px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.targets-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+}
+.text-center { text-align: center; }
 </style>
 
 

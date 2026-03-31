@@ -26,13 +26,14 @@ def _validate_period(period: str):
         )
     return None
 
-from ..models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommendation, Notification, get_user_kpi_role
+from ..models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommendation, Notification, KpiTarget, get_user_kpi_role
 from ..serializers import (
     KpiGroupSerializer,
     KpiIndicatorSerializer,
     KpiValueSerializer,
     KpiValueLogSerializer,
     KpiRecommendationSerializer,
+    KpiTargetSerializer,
     NotificationSerializer,
 )
 
@@ -853,3 +854,191 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     def unread_count(self, request):
         count = Notification.objects.filter(recipient=request.user, is_read=False).count()
         return Response({'count': count})
+
+
+class KpiTargetViewSet(viewsets.ModelViewSet):
+    """
+    Управление индивидуальными плановыми значениями (только для руководителей).
+
+    GET /api/kpi/targets/ — список планов (фильтр: ?period=YYYY-MM&user_id=N)
+    POST /api/kpi/targets/ — создать/обновить план
+    DELETE /api/kpi/targets/{id}/ — удалить план
+    """
+    serializer_class = KpiTargetSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = KpiTarget.objects.select_related(
+            'user', 'indicator', 'indicator__group', 'set_by'
+        ).order_by('user__last_name', 'indicator__group__order', 'indicator__order')
+
+        period = self.request.query_params.get('period')
+        if period:
+            qs = qs.filter(period=period)
+
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(set_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        """Создание или обновление плана (upsert по user+indicator+period)."""
+        user_id = request.data.get('user_id')
+        indicator_id = request.data.get('indicator_id')
+        period = request.data.get('period')
+        target_value = request.data.get('target_value')
+        comment = request.data.get('comment', '')
+
+        if not all([user_id, indicator_id, period, target_value is not None]):
+            return Response(
+                {'error': 'Обязательные поля: user_id, indicator_id, period, target_value'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        err = _validate_period(period)
+        if err:
+            return err
+
+        try:
+            target_value = float(target_value)
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'target_value должен быть числом'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target, created = KpiTarget.objects.update_or_create(
+            user_id=user_id,
+            indicator_id=indicator_id,
+            period=period,
+            defaults={
+                'target_value': target_value,
+                'set_by': request.user,
+                'comment': comment,
+            },
+        )
+
+        serializer = self.get_serializer(target)
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['post'])
+    def bulk_set(self, request):
+        """
+        Массовая установка планов.
+        Body: { targets: [{ user_id, indicator_id, period, target_value, comment? }, ...] }
+        """
+        targets_data = request.data.get('targets', [])
+        if not targets_data:
+            return Response({'error': 'Список targets пуст'}, status=status.HTTP_400_BAD_REQUEST)
+
+        created_count = 0
+        updated_count = 0
+        errors = []
+
+        for item in targets_data:
+            try:
+                _, created = KpiTarget.objects.update_or_create(
+                    user_id=item['user_id'],
+                    indicator_id=item['indicator_id'],
+                    period=item['period'],
+                    defaults={
+                        'target_value': float(item['target_value']),
+                        'set_by': request.user,
+                        'comment': item.get('comment', ''),
+                    },
+                )
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+            except Exception as e:
+                errors.append(str(e))
+
+        return Response({
+            'created': created_count,
+            'updated': updated_count,
+            'errors': errors,
+        })
+
+
+class GenerateSummaryReportView(APIView):
+    """
+    Сводный PDF-отчёт по всем сотрудникам за период (только руководитель).
+
+    GET /api/kpi/reports/summary/?period=YYYY-MM&role=pps|rop|all
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, *args, **kwargs):
+        period = request.query_params.get('period')
+        role_filter = request.query_params.get('role', 'pps')
+
+        if not period:
+            return Response(
+                {'error': 'Необходимо указать параметр period'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        err = _validate_period(period)
+        if err:
+            return err
+
+        try:
+            generator = KpiReportGenerator()
+            buffer = generator.generate_summary_report(period, role_filter)
+            response = HttpResponse(buffer, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="KPI_Summary_{period}.pdf"'
+            return response
+        except Exception as e:
+            logger.error(f"Ошибка генерации сводного отчёта: {e}")
+            return Response(
+                {'error': 'Не удалось сгенерировать сводный отчёт'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class GenerateSummaryExcelView(APIView):
+    """
+    Сводный Excel-отчёт по всем сотрудникам за период (только руководитель).
+
+    GET /api/kpi/reports/summary-excel/?period=YYYY-MM&role=pps|rop|all
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, *args, **kwargs):
+        period = request.query_params.get('period')
+        role_filter = request.query_params.get('role', 'pps')
+
+        if not period:
+            return Response(
+                {'error': 'Необходимо указать параметр period'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        err = _validate_period(period)
+        if err:
+            return err
+
+        try:
+            generator = KpiReportGenerator()
+            buffer = generator.generate_summary_excel(period, role_filter)
+            response = HttpResponse(
+                buffer,
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+            response['Content-Disposition'] = f'attachment; filename="KPI_Summary_{period}.xlsx"'
+            return response
+        except Exception as e:
+            logger.error(f"Ошибка генерации сводного Excel: {e}")
+            return Response(
+                {'error': 'Не удалось сгенерировать сводный отчёт'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
