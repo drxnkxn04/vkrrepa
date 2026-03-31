@@ -60,22 +60,29 @@
     <div class="summary-cards">
       <div class="card total-score">
         <h3>Общий балл KPI</h3>
-        <div class="score-value" :class="scoreClass">
-          {{ totalScore.toFixed(1) }}%
-        </div>
-        <div v-if="maxPoints > 0" class="points-info">
-          {{ totalPoints.toFixed(0) }} / {{ maxPoints.toFixed(0) }} баллов
-        </div>
-        <div class="performance-level">
-          <span :class="['badge', performanceLevelClass]">
-            {{ performanceLevelText }}
-          </span>
-          <span v-if="userRole" class="badge role-badge">{{ userRole === 'rop' ? 'РОП' : 'ППС' }}</span>
-        </div>
-        <div class="bonus-info">
-          <p>Бонус к ставке: <strong :class="bonusAmount >= 0 ? 'bonus-positive' : 'bonus-negative'">{{ bonusAmount >= 0 ? '+' : '' }}{{ formatCurrency(bonusAmount) }}</strong></p>
-          <p class="trend" :class="trendClass">{{ trendText }}</p>
-        </div>
+        <template v-if="dataLoading">
+          <div class="score-skeleton"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+        </template>
+        <template v-else>
+          <div class="score-value" :class="scoreClass">
+            {{ totalScore.toFixed(1) }}%
+          </div>
+          <div v-if="maxPoints > 0" class="points-info">
+            {{ totalPoints.toFixed(0) }} / {{ maxPoints.toFixed(0) }} баллов
+          </div>
+          <div class="performance-level">
+            <span :class="['badge', performanceLevelClass]">
+              {{ performanceLevelText }}
+            </span>
+            <span v-if="userRole" class="badge role-badge">{{ userRole === 'rop' ? 'РОП' : 'ППС' }}</span>
+          </div>
+          <div class="bonus-info">
+            <p>Бонус к ставке: <strong :class="bonusAmount >= 0 ? 'bonus-positive' : 'bonus-negative'">{{ bonusAmount >= 0 ? '+' : '' }}{{ formatCurrency(bonusAmount) }}</strong></p>
+            <p class="trend" :class="trendClass">{{ trendText }}</p>
+          </div>
+        </template>
       </div>
 
       <div class="card progress-overview">
@@ -309,6 +316,7 @@ export default {
     return {
       selectedPeriod: '',
       availablePeriods: [],
+      dataLoading: true,
       totalScore: 0,
       totalPoints: 0,
       maxPoints: 0,
@@ -496,6 +504,8 @@ export default {
       } catch (error) {
         console.error('Ошибка загрузки данных дашборда:', error);
         this.$toast.error('Не удалось загрузить данные дашборда');
+      } finally {
+        this.dataLoading = false;
       }
     },
     async loadPreviousPeriodData() {
@@ -688,6 +698,10 @@ export default {
 .progress-overview { min-height: 280px; }
 .empty-chart { color: #aaa; text-align: center; margin-top: 80px; }
 .total-score { text-align: center; }
+.score-skeleton { width: 140px; height: 56px; background: #e9ecef; border-radius: 8px; margin: 12px auto; animation: skeleton-pulse 1.4s ease-in-out infinite; }
+.skeleton-line { height: 16px; background: #e9ecef; border-radius: 4px; margin: 8px auto; width: 70%; animation: skeleton-pulse 1.4s ease-in-out infinite; }
+.skeleton-line.short { width: 45%; }
+@keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .score-value { font-size: 3.5rem; font-weight: 800; margin: 12px 0; }
 .score-value.excellent { color: #28a745; }
 .score-value.good { color: #ffc107; }
