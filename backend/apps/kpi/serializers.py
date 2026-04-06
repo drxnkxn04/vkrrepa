@@ -44,16 +44,26 @@ class KpiValueSerializer(serializers.ModelSerializer):
             'reviewed_at',
         )
 
+    def _get_targets_cache(self):
+        """Кэш KpiTarget на время сериализации (избегаем N+1 запросов)."""
+        if '_targets_cache' not in self.context:
+            targets = KpiTarget.objects.all().values_list(
+                'user_id', 'indicator_id', 'period', 'target_value',
+            )
+            self.context['_targets_cache'] = {
+                (uid, iid, p): tv for uid, iid, p, tv in targets
+            }
+        return self.context['_targets_cache']
+
     def get_target_value(self, obj):
         """Если target_value == 0, подставляем из KpiTarget или indicator.max_value."""
         if obj.target_value and obj.target_value > 0:
             return obj.target_value
-        # Индивидуальный план
-        target = KpiTarget.objects.filter(
-            user=obj.user, indicator=obj.indicator, period=obj.period,
-        ).first()
-        if target:
-            return float(target.target_value)
+        # Индивидуальный план (из кэша)
+        cache = self._get_targets_cache()
+        cached_tv = cache.get((obj.user_id, obj.indicator_id, obj.period))
+        if cached_tv is not None:
+            return float(cached_tv)
         # Значение из индикатора
         if obj.indicator and obj.indicator.max_value > 0:
             return float(obj.indicator.max_value)

@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Sum, Avg, Count, Q, F
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from decimal import Decimal
 import logging
 from datetime import datetime, timedelta
@@ -521,7 +522,7 @@ class KpiCalculator:
             year, month = map(int, current_period.split('-'))
         except (ValueError, AttributeError):
             logger.exception(f"Некорректный формат периода: {current_period!r}")
-            now = datetime.now()
+            now = timezone.now()
             year, month = now.year, now.month
         if month == 12:
             return f"{year + 1}-01"
@@ -531,7 +532,7 @@ class KpiCalculator:
     def calculate_all_users_kpi(self, period: Optional[str] = None):
         """Массовый расчет KPI для всех активных пользователей."""
         if period is None:
-            period = datetime.now().strftime('%Y-%m')
+            period = timezone.now().strftime('%Y-%m')
 
         users = User.objects.filter(is_active=True, is_superuser=False)
 
@@ -572,7 +573,7 @@ class KpiCalculator:
     def get_user_kpi_history(self, user_id: int, months: int = 6) -> List[Dict]:
         """Получение истории KPI пользователя за последние N месяцев."""
         history = []
-        now = datetime.now()
+        now = timezone.now()
         year = now.year
         month = now.month
 

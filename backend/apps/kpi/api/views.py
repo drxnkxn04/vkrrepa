@@ -400,7 +400,10 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         Список с данными KPI по месяцам
         """
         user = request.user
-        months = min(int(request.query_params.get('months', 6)), 60)
+        try:
+            months = min(int(request.query_params.get('months', 6)), 60)
+        except (ValueError, TypeError):
+            months = 6
 
         try:
             calculator = KpiCalculator()
@@ -788,7 +791,10 @@ class TopPerformersView(APIView):
 
     def get(self, request, *args, **kwargs):
         period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
-        limit = min(int(request.query_params.get('limit', 10)), 100)
+        try:
+            limit = min(int(request.query_params.get('limit', 10)), 100)
+        except (ValueError, TypeError):
+            limit = 10
 
         try:
             calculator = KpiCalculator()

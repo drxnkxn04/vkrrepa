@@ -487,9 +487,9 @@ export default {
       this.selectedFilter = filter;
       this.filterUsers();
     },
-    setRoleFilter(role) {
+    async setRoleFilter(role) {
       this.roleFilter = role;
-      this.loadData();
+      await this.loadData();
     },
     async loadPending() {
       this.pendingLoading = true;

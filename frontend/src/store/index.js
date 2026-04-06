@@ -10,7 +10,7 @@ const store = createStore({
     // Состояние аутентификации
     accessToken: localStorage.getItem('access_token') || null,
     refreshToken: localStorage.getItem('refresh_token') || null,
-    user: JSON.parse(localStorage.getItem('user')) || null,
+    user: (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })(),
     authStatus: '', // 'loading', 'success', 'error'
     
     // Данные KPI
@@ -150,7 +150,12 @@ const store = createStore({
         
         commit('SET_TOKENS', { access, refresh });
         
-        const payload = JSON.parse(atob(access.split('.')[1]));
+        let payload;
+        try {
+          payload = JSON.parse(atob(access.split('.')[1]));
+        } catch {
+          throw new Error('Invalid token format');
+        }
 
         const user = {
           id: payload.user_id,
