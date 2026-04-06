@@ -127,6 +127,7 @@ class KpiValueLog(models.Model):
     ACTION_SUBMITTED = 'submitted'
     ACTION_APPROVED = 'approved'
     ACTION_REJECTED = 'rejected'
+    ACTION_CROSSREF_IMPORT = 'crossref_import'
 
     ACTION_CHOICES = (
         (ACTION_CREATED, 'Создано'),
@@ -134,6 +135,7 @@ class KpiValueLog(models.Model):
         (ACTION_SUBMITTED, 'Отправлено на проверку'),
         (ACTION_APPROVED, 'Одобрено'),
         (ACTION_REJECTED, 'Отклонено'),
+        (ACTION_CROSSREF_IMPORT, 'Импорт из Crossref'),
     )
 
     kpi_value = models.ForeignKey(
@@ -222,11 +224,13 @@ class Notification(models.Model):
     TYPE_SUBMITTED = 'submitted'
     TYPE_APPROVED = 'approved'
     TYPE_REJECTED = 'rejected'
+    TYPE_CROSSREF_IMPORT = 'crossref_import'
 
     TYPE_CHOICES = (
         (TYPE_SUBMITTED, 'KPI подан на проверку'),
         (TYPE_APPROVED, 'KPI одобрен'),
         (TYPE_REJECTED, 'KPI отклонён'),
+        (TYPE_CROSSREF_IMPORT, 'Импорт публикаций из Crossref'),
     )
 
     recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')

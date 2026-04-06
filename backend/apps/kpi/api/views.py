@@ -109,13 +109,29 @@ class KpiValueViewSet(viewsets.ModelViewSet):
 
         return qs.order_by('-created_at')
 
+    def _resolve_target_value(self, user, indicator, period):
+        """Плановое значение: индивидуальный план (KpiTarget) > indicator.max_value."""
+        try:
+            target = KpiTarget.objects.get(
+                user=user, indicator=indicator, period=period,
+            )
+            return float(target.target_value)
+        except KpiTarget.DoesNotExist:
+            return float(indicator.max_value) if indicator.max_value > 0 else 0.0
+
     def perform_create(self, serializer):
         """Auto-attach user and set draft status."""
+        indicator = serializer.validated_data.get('indicator')
+        period = serializer.validated_data.get('period', '')
+        target_value = self._resolve_target_value(
+            self.request.user, indicator, period,
+        )
         try:
             instance = serializer.save(
                 user=self.request.user,
                 status=KpiValue.STATUS_DRAFT,
-                is_verified=False
+                is_verified=False,
+                target_value=target_value,
             )
         except IntegrityError:
             raise ValidationError(

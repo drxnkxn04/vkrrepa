@@ -28,6 +28,7 @@ class KpiValueSerializer(serializers.ModelSerializer):
     )
     reviewer = serializers.PrimaryKeyRelatedField(read_only=True)
     user = serializers.SerializerMethodField()
+    target_value = serializers.SerializerMethodField()
 
     class Meta:
         model = KpiValue
@@ -42,6 +43,21 @@ class KpiValueSerializer(serializers.ModelSerializer):
             'reviewer',
             'reviewed_at',
         )
+
+    def get_target_value(self, obj):
+        """Если target_value == 0, подставляем из KpiTarget или indicator.max_value."""
+        if obj.target_value and obj.target_value > 0:
+            return obj.target_value
+        # Индивидуальный план
+        target = KpiTarget.objects.filter(
+            user=obj.user, indicator=obj.indicator, period=obj.period,
+        ).first()
+        if target:
+            return float(target.target_value)
+        # Значение из индикатора
+        if obj.indicator and obj.indicator.max_value > 0:
+            return float(obj.indicator.max_value)
+        return 0.0
 
     def get_user(self, obj):
         if not obj.user:

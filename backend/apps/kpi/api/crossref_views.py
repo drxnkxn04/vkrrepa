@@ -19,7 +19,10 @@ from apps.integrations.services.crossref_service import (
     CrossrefTimeoutError,
     CrossrefValidationError,
 )
-from apps.kpi.models import KpiIndicator, KpiValue, get_user_kpi_role
+from django.contrib.auth import get_user_model
+from apps.kpi.models import KpiIndicator, KpiValue, KpiValueLog, Notification, get_user_kpi_role
+
+User = get_user_model()
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +229,30 @@ class CrossrefSyncView(APIView):
 
                     saved_count += len(new_pubs)
                     skipped_count += len(unique_in_batch) - len(new_pubs)
+
+                    # Аудит-лог
+                    doi_list = ', '.join(p['doi'].strip().upper() for p in new_pubs)
+                    KpiValueLog.objects.create(
+                        kpi_value=kpi_value,
+                        action=KpiValueLog.ACTION_CROSSREF_IMPORT,
+                        actor=user,
+                        comment=f'Импорт из Crossref ({len(new_pubs)} публ.): {doi_list}',
+                        new_value=kpi_value.actual_value,
+                    )
+
+                    # Уведомление руководителям (staff)
+                    user_name = user.get_full_name() or user.username
+                    for staff in User.objects.filter(is_staff=True, is_active=True).exclude(pk=user.pk):
+                        Notification.objects.create(
+                            recipient=staff,
+                            notification_type=Notification.TYPE_CROSSREF_IMPORT,
+                            title='Импорт публикаций из Crossref',
+                            message=(
+                                f'{user_name} импортировал(а) {len(new_pubs)} публ. '
+                                f'в "{indicator.name}" за {period} из Crossref.'
+                            ),
+                            kpi_value=kpi_value,
+                        )
 
             except Exception as exc:
                 err = f'KPI save error (indicator={indicator_id}, period={period}): {exc}'
