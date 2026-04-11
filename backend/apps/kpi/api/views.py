@@ -10,7 +10,6 @@ from django.http import HttpResponse
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from datetime import datetime
 import logging
 import re
 
@@ -204,14 +203,18 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         _log_kpi_action(obj, KpiValueLog.ACTION_SUBMITTED, request.user)
 
         submitter_name = obj.user.get_full_name() or obj.user.username
-        for staff_user in User.objects.filter(is_staff=True, is_active=True):
-            _create_notification(
+        message = f'{submitter_name} подал(а) KPI "{obj.indicator.name}" за {obj.period} на проверку.'
+        staff_users = User.objects.filter(is_staff=True, is_active=True)
+        Notification.objects.bulk_create([
+            Notification(
                 recipient=staff_user,
                 notification_type=Notification.TYPE_SUBMITTED,
                 title='Новый KPI на проверку',
-                message=f'{submitter_name} подал(а) KPI "{obj.indicator.name}" за {obj.period} на проверку.',
+                message=message,
                 kpi_value=obj,
             )
+            for staff_user in staff_users
+        ])
 
         return Response(KpiValueSerializer(obj).data)
 
@@ -371,7 +374,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         - group_scores: баллы по группам с детализацией
         """
         user = request.user
-        period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
+        period = request.query_params.get('period', timezone.now().strftime('%Y-%m'))
 
         err = _validate_period(period)
         if err:
@@ -428,7 +431,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         Список рекомендаций для улучшения показателей
         """
         user = request.user
-        period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
+        period = request.query_params.get('period', timezone.now().strftime('%Y-%m'))
 
         err = _validate_period(period)
         if err:
@@ -527,11 +530,12 @@ class ManagerDashboardView(APIView):
             elif role_filter == 'rop':
                 users = users.filter(is_staff=True)
 
+            users = list(users)
+            scores = calculator.bulk_calculate_total_score(users, period)
+
             manager_data = []
-
             for user in users:
-                user_kpi = calculator.calculate_total_score(user.id, period)
-
+                user_kpi = scores.get(user.id) or calculator._empty_result()
                 manager_data.append({
                     'user_id': user.id,
                     'username': user.username,
@@ -790,7 +794,7 @@ class TopPerformersView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request, *args, **kwargs):
-        period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
+        period = request.query_params.get('period', timezone.now().strftime('%Y-%m'))
         try:
             limit = min(int(request.query_params.get('limit', 10)), 100)
         except (ValueError, TypeError):
@@ -823,18 +827,15 @@ class TeamAverageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        period = request.query_params.get('period', datetime.now().strftime('%Y-%m'))
+        period = request.query_params.get('period', timezone.now().strftime('%Y-%m'))
         calculator = KpiCalculator()
-        users = User.objects.filter(
-            is_active=True, is_staff=False, is_superuser=False
-        ).select_related('profile')
-        scores = []
-        for user in users:
-            try:
-                result = calculator.calculate_total_score(user.id, period)
-                scores.append(result['total_score'])
-            except Exception:
-                pass
+        users = list(
+            User.objects.filter(
+                is_active=True, is_staff=False, is_superuser=False
+            ).select_related('profile')
+        )
+        results = calculator.bulk_calculate_total_score(users, period)
+        scores = [r['total_score'] for r in results.values()]
         avg = round(sum(scores) / len(scores), 1) if scores else 0.0
         return Response({
             'period': period,

@@ -242,17 +242,23 @@ class CrossrefSyncView(APIView):
 
                     # Уведомление руководителям (staff)
                     user_name = user.get_full_name() or user.username
-                    for staff in User.objects.filter(is_staff=True, is_active=True).exclude(pk=user.pk):
-                        Notification.objects.create(
+                    notif_message = (
+                        f'{user_name} импортировал(а) {len(new_pubs)} публ. '
+                        f'в "{indicator.name}" за {period} из Crossref.'
+                    )
+                    staff_recipients = User.objects.filter(
+                        is_staff=True, is_active=True
+                    ).exclude(pk=user.pk)
+                    Notification.objects.bulk_create([
+                        Notification(
                             recipient=staff,
                             notification_type=Notification.TYPE_CROSSREF_IMPORT,
                             title='Импорт публикаций из Crossref',
-                            message=(
-                                f'{user_name} импортировал(а) {len(new_pubs)} публ. '
-                                f'в "{indicator.name}" за {period} из Crossref.'
-                            ),
+                            message=notif_message,
                             kpi_value=kpi_value,
                         )
+                        for staff in staff_recipients
+                    ])
 
             except Exception as exc:
                 err = f'KPI save error (indicator={indicator_id}, period={period}): {exc}'

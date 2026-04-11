@@ -7,8 +7,9 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from decimal import Decimal
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from ..models import KpiGroup, KpiIndicator, KpiValue, KpiRecommendation, KpiTarget, UserProfile, get_user_kpi_role
 
@@ -130,6 +131,181 @@ class KpiCalculator:
 
         cache.set(cache_key, result, self.CACHE_TTL)
         return result
+
+    def bulk_calculate_total_score(self, users: Iterable, period: str) -> Dict[int, Dict]:
+        """
+        Batch-расчёт total_score для списка пользователей за период.
+
+        Эквивалент N вызовов calculate_total_score, но выполняется за константное
+        число запросов вместо ~57·N. Используется на дашборде руководителя и
+        в сводных отчётах, где нужны баллы сразу по всей команде.
+        """
+        users = list(users)
+        if not users:
+            return {}
+
+        user_ids = [u.id for u in users]
+
+        all_groups = list(KpiGroup.objects.all().order_by('order'))
+        groups_by_role: Dict[str, List[KpiGroup]] = defaultdict(list)
+        for g in all_groups:
+            groups_by_role[g.role].append(g)
+
+        indicators_by_group: Dict[int, List[KpiIndicator]] = defaultdict(list)
+        for ind in KpiIndicator.objects.select_related('group').order_by('order'):
+            indicators_by_group[ind.group_id].append(ind)
+
+        targets_dict: Dict[tuple, float] = {}
+        for t in KpiTarget.objects.filter(user_id__in=user_ids, period=period):
+            targets_dict[(t.user_id, t.indicator_id)] = float(t.target_value)
+
+        values_dict: Dict[tuple, tuple] = {}
+        approved_qs = KpiValue.objects.filter(
+            user_id__in=user_ids,
+            period=period,
+            status=KpiValue.STATUS_APPROVED,
+        )
+        for v in approved_qs:
+            values_dict[(v.user_id, v.indicator_id)] = (
+                float(v.actual_value),
+                float(v.target_value),
+            )
+
+        results: Dict[int, Dict] = {}
+        for user in users:
+            role = self._get_user_role(user)
+            groups = groups_by_role.get(role) or all_groups
+            results[user.id] = self._compute_user_score_from_cache(
+                user, groups, indicators_by_group, targets_dict, values_dict
+            )
+        return results
+
+    def _compute_user_score_from_cache(
+        self,
+        user,
+        groups: List[KpiGroup],
+        indicators_by_group: Dict[int, List[KpiIndicator]],
+        targets_dict: Dict[tuple, float],
+        values_dict: Dict[tuple, tuple],
+    ) -> Dict:
+        if not groups:
+            return self._empty_result()
+
+        group_scores: Dict[int, Dict] = {}
+        total_weighted_score = 0.0
+        total_weight = 0.0
+        total_points = 0.0
+        max_points = 0.0
+
+        for group in groups:
+            indicators = indicators_by_group.get(group.id, [])
+            group_result = self._compute_group_score_from_cache(
+                user.id, group, indicators, targets_dict, values_dict
+            )
+            group_scores[group.id] = group_result
+
+            total_weighted_score += group_result['score'] * group.weight
+            total_weight += group.weight
+            total_points += group_result['points']
+            max_points += group.max_points
+
+        total_score = total_weighted_score / total_weight if total_weight > 0 else 0.0
+
+        return {
+            'total_score': round(total_score, 2),
+            'total_points': round(total_points, 1),
+            'max_points': round(max_points, 1),
+            'performance_level': self._determine_performance_level(total_score),
+            'bonus_amount': self._calculate_bonus(total_score),
+            'group_scores': group_scores,
+            'threshold_warnings': self._check_thresholds(group_scores, groups),
+            'user_role': self._get_user_role(user),
+        }
+
+    def _compute_group_score_from_cache(
+        self,
+        user_id: int,
+        group: KpiGroup,
+        indicators: List[KpiIndicator],
+        targets_dict: Dict[tuple, float],
+        values_dict: Dict[tuple, tuple],
+    ) -> Dict:
+        if not indicators:
+            return {
+                'name': group.name,
+                'score': 0.0,
+                'points': 0.0,
+                'max_points': group.max_points,
+                'min_threshold': group.min_threshold,
+                'indicators': [],
+            }
+
+        indicator_results = []
+        total_weighted_completion = 0.0
+        total_indicator_weight = 0.0
+        group_points = 0.0
+
+        for indicator in indicators:
+            data = self._compute_indicator_from_cache(
+                user_id, indicator, targets_dict, values_dict
+            )
+            indicator_results.append(data)
+            completion = data['completion_percent']
+            total_weighted_completion += completion * indicator.weight
+            total_indicator_weight += indicator.weight
+            group_points += indicator.max_points * (completion / 100.0)
+
+        group_score = (
+            total_weighted_completion / total_indicator_weight
+            if total_indicator_weight > 0 else 0.0
+        )
+
+        return {
+            'name': group.name,
+            'score': round(group_score, 2),
+            'points': round(group_points, 1),
+            'max_points': group.max_points,
+            'min_threshold': group.min_threshold,
+            'indicators': indicator_results,
+        }
+
+    def _compute_indicator_from_cache(
+        self,
+        user_id: int,
+        indicator: KpiIndicator,
+        targets_dict: Dict[tuple, float],
+        values_dict: Dict[tuple, tuple],
+    ) -> Dict:
+        default_target = targets_dict.get((user_id, indicator.id))
+        if default_target is None:
+            default_target = float(indicator.max_value) if indicator.max_value > 0 else 1.0
+
+        val = values_dict.get((user_id, indicator.id))
+        if val is not None:
+            actual_value, kpi_target = val
+            target_value = kpi_target if kpi_target > 0 else default_target
+        else:
+            actual_value = 0.0
+            target_value = default_target
+
+        if target_value > 0:
+            completion_percent = min((actual_value / target_value) * 100, 100.0)
+        elif actual_value > 0:
+            completion_percent = 100.0
+        else:
+            completion_percent = 0.0
+
+        return {
+            'id': indicator.id,
+            'name': indicator.name,
+            'actual_value': actual_value,
+            'target_value': target_value,
+            'completion_percent': round(completion_percent, 2),
+            'unit': indicator.unit,
+            'weight': indicator.weight,
+            'max_points': indicator.max_points,
+            'points': round(indicator.max_points * (completion_percent / 100.0), 1),
+        }
 
     def _calculate_group_score(self, user_id: int, group: KpiGroup, period: str) -> Dict:
         """Расчет балла для группы показателей."""

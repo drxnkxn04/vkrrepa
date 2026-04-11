@@ -51,7 +51,6 @@ cd backend
 # Виртуальное окружение
 python -m venv .venv
 .venv\Scripts\activate   # Windows
-# source .venv/bin/activate  # Linux/macOS
 
 # Зависимости
 pip install -r requirements.txt
