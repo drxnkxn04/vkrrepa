@@ -185,105 +185,117 @@ class KpiValueViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
         """Submit KPI value for review."""
-        obj = self.get_object()
-        self._ensure_owner(obj)
+        self.get_object()
+        with transaction.atomic():
+            obj = KpiValue.objects.select_for_update().select_related(
+                'indicator', 'user'
+            ).get(pk=pk)
+            self._ensure_owner(obj)
 
-        if obj.status not in (KpiValue.STATUS_DRAFT, KpiValue.STATUS_REJECTED):
-            raise ValidationError('Only draft or rejected values can be submitted.')
+            if obj.status not in (KpiValue.STATUS_DRAFT, KpiValue.STATUS_REJECTED):
+                raise ValidationError('Only draft or rejected values can be submitted.')
 
-        obj.status = KpiValue.STATUS_SUBMITTED
-        obj.submitted_at = timezone.now()
-        obj.reviewer = None
-        obj.reviewed_at = None
-        obj.review_comment = ''
-        obj.is_verified = False
-        obj.save(update_fields=[
-            'status', 'submitted_at', 'reviewer', 'reviewed_at', 'review_comment', 'is_verified'
-        ])
-        _log_kpi_action(obj, KpiValueLog.ACTION_SUBMITTED, request.user)
+            obj.status = KpiValue.STATUS_SUBMITTED
+            obj.submitted_at = timezone.now()
+            obj.reviewer = None
+            obj.reviewed_at = None
+            obj.review_comment = ''
+            obj.is_verified = False
+            obj.save(update_fields=[
+                'status', 'submitted_at', 'reviewer', 'reviewed_at', 'review_comment', 'is_verified'
+            ])
+            _log_kpi_action(obj, KpiValueLog.ACTION_SUBMITTED, request.user)
 
-        submitter_name = obj.user.get_full_name() or obj.user.username
-        message = f'{submitter_name} подал(а) KPI "{obj.indicator.name}" за {obj.period} на проверку.'
-        staff_users = User.objects.filter(is_staff=True, is_active=True)
-        Notification.objects.bulk_create([
-            Notification(
-                recipient=staff_user,
-                notification_type=Notification.TYPE_SUBMITTED,
-                title='Новый KPI на проверку',
-                message=message,
-                kpi_value=obj,
-            )
-            for staff_user in staff_users
-        ])
+            submitter_name = obj.user.get_full_name() or obj.user.username
+            message = f'{submitter_name} подал(а) KPI "{obj.indicator.name}" за {obj.period} на проверку.'
+            staff_users = User.objects.filter(is_staff=True, is_active=True)
+            Notification.objects.bulk_create([
+                Notification(
+                    recipient=staff_user,
+                    notification_type=Notification.TYPE_SUBMITTED,
+                    title='Новый KPI на проверку',
+                    message=message,
+                    kpi_value=obj,
+                )
+                for staff_user in staff_users
+            ])
 
         return Response(KpiValueSerializer(obj).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def approve(self, request, pk=None):
         """Approve submitted KPI value."""
-        obj = self.get_object()
+        self.get_object()
+        with transaction.atomic():
+            obj = KpiValue.objects.select_for_update().select_related(
+                'indicator', 'user'
+            ).get(pk=pk)
 
-        if obj.status != KpiValue.STATUS_SUBMITTED:
-            raise ValidationError('Only submitted values can be approved.')
+            if obj.status != KpiValue.STATUS_SUBMITTED:
+                raise ValidationError('Only submitted values can be approved.')
 
-        obj.status = KpiValue.STATUS_APPROVED
-        obj.is_verified = True
-        obj.reviewer = request.user
-        obj.reviewed_at = timezone.now()
-        comment = request.data.get('review_comment')
-        if comment is not None:
-            obj.review_comment = comment
-        obj.save(update_fields=[
-            'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
-        ])
-        _log_kpi_action(
-            obj, KpiValueLog.ACTION_APPROVED, request.user,
-            comment=obj.review_comment,
-        )
+            obj.status = KpiValue.STATUS_APPROVED
+            obj.is_verified = True
+            obj.reviewer = request.user
+            obj.reviewed_at = timezone.now()
+            comment = request.data.get('review_comment')
+            if comment is not None:
+                obj.review_comment = comment
+            obj.save(update_fields=[
+                'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
+            ])
+            _log_kpi_action(
+                obj, KpiValueLog.ACTION_APPROVED, request.user,
+                comment=obj.review_comment,
+            )
 
-        reviewer_name = request.user.get_full_name() or request.user.username
-        _create_notification(
-            recipient=obj.user,
-            notification_type=Notification.TYPE_APPROVED,
-            title='KPI одобрен',
-            message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} одобрен руководителем {reviewer_name}.',
-            kpi_value=obj,
-        )
+            reviewer_name = request.user.get_full_name() or request.user.username
+            _create_notification(
+                recipient=obj.user,
+                notification_type=Notification.TYPE_APPROVED,
+                title='KPI одобрен',
+                message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} одобрен руководителем {reviewer_name}.',
+                kpi_value=obj,
+            )
 
         return Response(KpiValueSerializer(obj).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def reject(self, request, pk=None):
         """Reject submitted KPI value."""
-        obj = self.get_object()
+        self.get_object()
+        with transaction.atomic():
+            obj = KpiValue.objects.select_for_update().select_related(
+                'indicator', 'user'
+            ).get(pk=pk)
 
-        if obj.status != KpiValue.STATUS_SUBMITTED:
-            raise ValidationError('Only submitted values can be rejected.')
+            if obj.status != KpiValue.STATUS_SUBMITTED:
+                raise ValidationError('Only submitted values can be rejected.')
 
-        obj.status = KpiValue.STATUS_REJECTED
-        obj.is_verified = False
-        obj.reviewer = request.user
-        obj.reviewed_at = timezone.now()
-        comment = request.data.get('review_comment')
-        if comment is not None:
-            obj.review_comment = comment
-        obj.save(update_fields=[
-            'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
-        ])
-        _log_kpi_action(
-            obj, KpiValueLog.ACTION_REJECTED, request.user,
-            comment=obj.review_comment,
-        )
+            obj.status = KpiValue.STATUS_REJECTED
+            obj.is_verified = False
+            obj.reviewer = request.user
+            obj.reviewed_at = timezone.now()
+            comment = request.data.get('review_comment')
+            if comment is not None:
+                obj.review_comment = comment
+            obj.save(update_fields=[
+                'status', 'is_verified', 'reviewer', 'reviewed_at', 'review_comment'
+            ])
+            _log_kpi_action(
+                obj, KpiValueLog.ACTION_REJECTED, request.user,
+                comment=obj.review_comment,
+            )
 
-        reviewer_name = request.user.get_full_name() or request.user.username
-        comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment else ''
-        _create_notification(
-            recipient=obj.user,
-            notification_type=Notification.TYPE_REJECTED,
-            title='KPI отклонён',
-            message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} отклонён руководителем {reviewer_name}.{comment_text}',
-            kpi_value=obj,
-        )
+            reviewer_name = request.user.get_full_name() or request.user.username
+            comment_text = f' Комментарий: {obj.review_comment}' if obj.review_comment else ''
+            _create_notification(
+                recipient=obj.user,
+                notification_type=Notification.TYPE_REJECTED,
+                title='KPI отклонён',
+                message=f'Ваш KPI "{obj.indicator.name}" за {obj.period} отклонён руководителем {reviewer_name}.{comment_text}',
+                kpi_value=obj,
+            )
 
         return Response(KpiValueSerializer(obj).data)
 
@@ -314,13 +326,13 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         comment = request.data.get('review_comment', '')
         if not ids:
             raise ValidationError('Необходимо указать список id.')
-        qs = KpiValue.objects.filter(
-            id__in=ids, status=KpiValue.STATUS_SUBMITTED
-        ).select_related('indicator', 'user')
         now = timezone.now()
         reviewer_name = request.user.get_full_name() or request.user.username
         count = 0
         with transaction.atomic():
+            qs = KpiValue.objects.select_for_update().filter(
+                id__in=ids, status=KpiValue.STATUS_SUBMITTED
+            ).select_related('indicator', 'user').order_by('id')
             for obj in qs:
                 obj.status = new_status
                 obj.is_verified = is_verified
