@@ -210,7 +210,7 @@ class CrossrefAPIService:
 
         params = {
             'filter': f'orcid:{orcid}',
-            'select': 'DOI,title,published,container-title,type,author,abstract,publisher',
+            'select': 'DOI,title,published,container-title,type,author,abstract,publisher,is-referenced-by-count',
             'rows': min(max_results, 1000),  # Crossref ограничивает до 1000
         }
 
@@ -280,7 +280,7 @@ class CrossrefAPIService:
         params = {
             'query': query,
             'rows': min(max_results, 100),
-            'select': 'DOI,title,published,container-title,type,author'
+            'select': 'DOI,title,published,container-title,type,author,is-referenced-by-count'
         }
 
         try:
@@ -335,6 +335,12 @@ class CrossrefAPIService:
                     work.get('container-title'), list
                 ) else work.get('container-title', '')
 
+                citations_raw = work.get('is-referenced-by-count', 0)
+                try:
+                    citations = int(citations_raw) if citations_raw is not None else 0
+                except (TypeError, ValueError):
+                    citations = 0
+
                 # Формирование структуры публикации
                 publication = {
                     'doi': work['DOI'].upper(),
@@ -345,6 +351,7 @@ class CrossrefAPIService:
                     'type': publication_type,
                     'authors': authors,
                     'abstract': work.get('abstract', '').replace('\n', ' ').strip()[:500],  # Ограничиваем
+                    'citations': citations,
                     'url': f"https://doi.org/{work['DOI']}"
                 }
 

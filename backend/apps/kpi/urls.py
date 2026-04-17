@@ -9,7 +9,7 @@ from apps.kpi.api.profile_views import UserProfileView, ChangePasswordView, Avat
 from apps.kpi.api.crossref_views import (
     CrossrefSyncView, CrossrefSearchByDoiView,
     CrossrefSearchView, CrossrefSaveToKpiView,
-    CrossrefHealthCheckView,
+    CrossrefCitationsView, CrossrefHealthCheckView,
 )
 
 
@@ -139,6 +139,11 @@ urlpatterns = [
         'crossref/save-to-kpi/',
         CrossrefSaveToKpiView.as_view(),
         name='crossref-save-to-kpi'
+    ),
+    path(
+        'crossref/citations/',
+        CrossrefCitationsView.as_view(),
+        name='crossref-citations'
     ),
     path(
         'crossref/health/',

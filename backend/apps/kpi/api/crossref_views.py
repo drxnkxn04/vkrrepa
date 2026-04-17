@@ -419,6 +419,43 @@ class CrossrefSaveToKpiView(APIView):
         })
 
 
+class CrossrefCitationsView(APIView):
+    """
+    Получение количества цитирований публикации по DOI.
+
+    GET /api/kpi/crossref/citations/?doi=10.xxxx/yyyy
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        doi = request.query_params.get('doi')
+        if not doi:
+            return Response({'error': 'doi required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            service = CrossrefAPIService()
+            publication = service.get_publication_by_doi(doi)
+            if publication is None:
+                return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({
+                'doi': publication.get('doi'),
+                'title': publication.get('title'),
+                'year': publication.get('year'),
+                'journal': publication.get('journal'),
+                'citations': publication.get('citations', 0),
+            })
+        except CrossrefRateLimitError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except (CrossrefTimeoutError, CrossrefConnectionError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except CrossrefAPIError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception as exc:
+            logger.exception('Unexpected citations lookup error: %s', exc)
+            return Response({'error': 'Internal server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class CrossrefHealthCheckView(APIView):
     permission_classes = [IsAuthenticated]
 

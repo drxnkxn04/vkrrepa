@@ -269,6 +269,10 @@ export const kpiAPI = {
   savePublicationsToKpi(publications) {
     return apiClient.post('/kpi/crossref/save-to-kpi/', { publications });
   },
+
+  getCitations(doi) {
+    return apiClient.get('/kpi/crossref/citations/', { params: { doi } });
+  },
   
   // === Команда ===
   getTeamAverage(period) {

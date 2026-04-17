@@ -188,6 +188,13 @@
               <span v-if="pub.journal" class="meta-tag journal">{{ pub.journal }}</span>
               <span v-if="pub.year" class="meta-tag year">{{ pub.year }}</span>
               <span class="meta-tag type">{{ formatType(pub.type) }}</span>
+              <span
+                v-if="typeof pub.citations === 'number'"
+                class="meta-tag citations"
+                :title="'Число цитирований по данным Crossref'"
+              >
+                Цитирований: {{ pub.citations }}
+              </span>
             </div>
             <div v-if="pub.authors && pub.authors.length" class="pub-authors">
               {{ formatAuthors(pub.authors) }}
@@ -736,6 +743,11 @@ export default {
 .meta-tag.type {
   background: #f3e8ff;
   color: #7c3aed;
+}
+
+.meta-tag.citations {
+  background: #dcfce7;
+  color: #15803d;
 }
 
 .pub-authors {
