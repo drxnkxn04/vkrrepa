@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'drf_spectacular',
     'apps.kpi',
 ]
 
@@ -247,7 +248,16 @@ REST_FRAMEWORK = {
         'anon': '20/minute',
         'user': '120/minute',
         'login': '5/minute',
+        'workflow': '30/minute',
     },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'KPI Management API',
+    'DESCRIPTION': 'API системы управления KPI сотрудников центра ИИ.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
 }
 
 # (Опционально) Настройки для Simple JWT (например, время жизни токенов)

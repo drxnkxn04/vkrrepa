@@ -192,10 +192,11 @@ const store = createStore({
       } finally {
         commit('CLEAR_AUTH');
         commit('SET_DASHBOARD_DATA', null);
+        commit('SET_MANUAL_INDICATORS', null);
         router.push('/login');
       }
     },
-    
+
     // Обновление токена
     async refreshToken({ commit, state }) {
       try {

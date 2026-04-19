@@ -5,7 +5,14 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
+
+
+class WorkflowThrottle(UserRateThrottle):
+    """Отдельный троттлинг для экшенов согласования (submit/approve/reject)."""
+    scope = 'workflow'
+
 from django.http import HttpResponse
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -182,7 +189,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         self._ensure_editable(obj)
         return super().destroy(request, *args, **kwargs)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], throttle_classes=[WorkflowThrottle])
     def submit(self, request, pk=None):
         """Submit KPI value for review."""
         self.get_object()
@@ -222,7 +229,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
 
         return Response(KpiValueSerializer(obj).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser], throttle_classes=[WorkflowThrottle])
     def approve(self, request, pk=None):
         """Approve submitted KPI value."""
         self.get_object()
@@ -260,7 +267,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
 
         return Response(KpiValueSerializer(obj).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser], throttle_classes=[WorkflowThrottle])
     def reject(self, request, pk=None):
         """Reject submitted KPI value."""
         self.get_object()
@@ -353,7 +360,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
                 count += 1
         return count
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser], throttle_classes=[WorkflowThrottle])
     def bulk_approve(self, request):
         """Массовое подтверждение KPI значений."""
         count = self._bulk_update_status(
@@ -362,7 +369,7 @@ class KpiValueViewSet(viewsets.ModelViewSet):
         )
         return Response({'approved': count})
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser], throttle_classes=[WorkflowThrottle])
     def bulk_reject(self, request):
         """Массовое отклонение KPI значений."""
         count = self._bulk_update_status(
@@ -396,8 +403,8 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             calculator = KpiCalculator()
             dashboard_data = calculator.calculate_dashboard(user.id, period)
             return Response(dashboard_data)
-        except Exception as e:
-            logger.error(f"Ошибка получения данных дашборда для {user.username}: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка получения данных дашборда для %s", user.username)
             return Response(
                 {'error': 'Не удалось загрузить данные дашборда'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -424,8 +431,8 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             calculator = KpiCalculator()
             history = calculator.get_user_kpi_history(user.id, months)
             return Response(history)
-        except Exception as e:
-            logger.error(f"Ошибка получения истории KPI для {user.username}: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка получения истории KPI для %s", user.username)
             return Response(
                 {'error': 'Не удалось загрузить историю KPI'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -453,8 +460,8 @@ class KpiValueViewSet(viewsets.ModelViewSet):
             calculator = KpiCalculator()
             recommendations = calculator.generate_recommendations(user.id, period)
             return Response(recommendations)
-        except Exception as e:
-            logger.error(f"Ошибка получения рекомендаций для {user.username}: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка получения рекомендаций для %s", user.username)
             return Response(
                 {'error': 'Не удалось загрузить рекомендации'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -570,8 +577,8 @@ class ManagerDashboardView(APIView):
                 'users': manager_data
             })
 
-        except Exception as e:
-            logger.error(f"Ошибка получения данных дашборда руководителя: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка получения данных дашборда руководителя")
             return Response(
                 {'error': 'Не удалось загрузить данные'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -613,8 +620,8 @@ class GenerateReportView(APIView):
 
             return response
 
-        except Exception as e:
-            logger.error(f"Ошибка генерации отчета для {request.user.username}: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка генерации отчета для %s", request.user.username)
             return Response(
                 {'error': 'Не удалось сгенерировать отчет'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -655,9 +662,9 @@ class GenerateUserReportView(APIView):
             response['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
 
-        except Exception as e:
-            logger.error(
-                f"Ошибка генерации отчета для пользователя {target_user.username}: {str(e)}"
+        except Exception:
+            logger.exception(
+                "Ошибка генерации отчета для пользователя %s", target_user.username
             )
             return Response(
                 {'error': 'Не удалось сгенерировать отчет'},
@@ -684,8 +691,8 @@ class GenerateExcelReportView(APIView):
             )
             response['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
-        except Exception as e:
-            logger.error(f"Ошибка генерации Excel для {request.user.username}: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка генерации Excel для %s", request.user.username)
             return Response({'error': 'Не удалось сгенерировать отчет'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -713,8 +720,8 @@ class GenerateUserExcelReportView(APIView):
             )
             response['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
-        except Exception as e:
-            logger.error(f"Ошибка генерации Excel для {target_user.username}: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка генерации Excel для %s", target_user.username)
             return Response({'error': 'Не удалось сгенерировать отчет'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -821,8 +828,8 @@ class TopPerformersView(APIView):
                 'top_performers': top_performers
             })
 
-        except Exception as e:
-            logger.error(f"Ошибка получения топа сотрудников: {str(e)}")
+        except Exception:
+            logger.exception("Ошибка получения топа сотрудников")
             return Response(
                 {'error': 'Не удалось загрузить данные'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -995,6 +1002,7 @@ class KpiTargetViewSet(viewsets.ModelViewSet):
                 else:
                     updated_count += 1
             except Exception as e:
+                logger.exception("Ошибка bulk-импорта KPI (элемент %s)", item)
                 errors.append(str(e))
 
         return Response({
@@ -1032,8 +1040,8 @@ class GenerateSummaryReportView(APIView):
             response = HttpResponse(buffer, content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="KPI_Summary_{period}.pdf"'
             return response
-        except Exception as e:
-            logger.error(f"Ошибка генерации сводного отчёта: {e}")
+        except Exception:
+            logger.exception("Ошибка генерации сводного отчёта")
             return Response(
                 {'error': 'Не удалось сгенерировать сводный отчёт'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1071,8 +1079,8 @@ class GenerateSummaryExcelView(APIView):
             )
             response['Content-Disposition'] = f'attachment; filename="KPI_Summary_{period}.xlsx"'
             return response
-        except Exception as e:
-            logger.error(f"Ошибка генерации сводного Excel: {e}")
+        except Exception:
+            logger.exception("Ошибка генерации сводного Excel")
             return Response(
                 {'error': 'Не удалось сгенерировать сводный отчёт'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

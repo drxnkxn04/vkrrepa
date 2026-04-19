@@ -5,10 +5,22 @@ from .models import KpiGroup, KpiIndicator, KpiValue, KpiValueLog, KpiRecommenda
 User = get_user_model()
 
 
+class KpiGroupShortSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = KpiGroup
+        fields = ['id', 'name', 'role', 'order']
+
+
 class KpiIndicatorSerializer(serializers.ModelSerializer):
+    group = KpiGroupShortSerializer(read_only=True)
+
     class Meta:
         model = KpiIndicator
-        fields = '__all__'
+        fields = [
+            'id', 'group', 'name', 'description', 'formula',
+            'data_source', 'max_value', 'unit', 'weight',
+            'max_points', 'order',
+        ]
 
 
 class KpiGroupSerializer(serializers.ModelSerializer):
@@ -16,7 +28,10 @@ class KpiGroupSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = KpiGroup
-        fields = '__all__'
+        fields = [
+            'id', 'name', 'description', 'weight', 'order', 'role',
+            'max_points', 'min_threshold', 'indicators',
+        ]
 
 
 class KpiValueSerializer(serializers.ModelSerializer):
@@ -32,7 +47,12 @@ class KpiValueSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = KpiValue
-        fields = '__all__'
+        fields = [
+            'id', 'user', 'indicator', 'indicator_id', 'period',
+            'actual_value', 'target_value', 'is_verified', 'status',
+            'submitted_at', 'reviewer', 'reviewed_at', 'review_comment',
+            'evidence', 'comment', 'created_at', 'updated_at',
+        ]
         read_only_fields = (
             'user',
             'created_at',
@@ -110,7 +130,11 @@ class KpiRecommendationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = KpiRecommendation
-        fields = '__all__'
+        fields = [
+            'id', 'user', 'indicator', 'indicator_id', 'period', 'text',
+            'priority', 'actual_value', 'target_value', 'current_completion',
+            'deadline_period', 'is_completed', 'created_at', 'updated_at',
+        ]
         read_only_fields = ('user', 'created_at')
 
 

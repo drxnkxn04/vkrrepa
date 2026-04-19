@@ -2,7 +2,7 @@
 <template>
   <div id="app-container">
     <header v-if="isAuthenticated" class="app-header">
-      <div class="logo">Система KPI</div>
+      <div class="logo">Программа KPI</div>
 
       <nav class="navigation" aria-label="Основная навигация">
         <router-link to="/">Дашборд</router-link>

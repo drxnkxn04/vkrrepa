@@ -13,6 +13,7 @@
 | Очереди     | Celery 5 + Redis                                     |
 | Отчёты      | ReportLab (PDF), OpenPyXL (Excel)                    |
 | Аутентификация | JWT (Simple JWT)                                  |
+| Документация API | drf-spectacular (OpenAPI 3, Swagger UI)          |
 
 ## Функциональность
 
@@ -32,9 +33,10 @@
 
 ### Предварительные требования
 
-- Python 3.10+
+- Python 3.12
 - Node.js 18+
 - PostgreSQL 14+
+- Redis (опционально, для prod-режима и Celery)
 
 ### 1. Клонирование
 
@@ -62,10 +64,15 @@ cp .env.example .env
 # База данных
 python manage.py migrate
 
-# Демо-данные (опционально)
-python manage.py shell -c "
-from apps.kpi.management.commands import create_demo_data
-"
+# Начальная структура KPI (группы и показатели)
+python manage.py init_kpi_structure
+
+# Профили пользователей (создать для существующих users)
+python manage.py create_user_profiles
+
+# Демо-данные (опционально — тестовые пользователи и заполненные KPI)
+python manage.py populate_test_data
+python manage.py prepare_demo_workflow
 
 # Запуск сервера
 python manage.py runserver
@@ -76,6 +83,9 @@ python manage.py runserver
 ```bash
 cd frontend
 
+# Настройка окружения
+cp .env.example .env
+
 # Зависимости
 npm install
 
@@ -83,7 +93,7 @@ npm install
 npm run serve
 ```
 
-Приложение будет доступно по адресу `http://localhost:5173`.
+Приложение будет доступно по адресу `http://localhost:8080`.
 
 ## Конфигурация
 
@@ -94,9 +104,13 @@ npm run serve
 | `DJANGO_SECRET_KEY`           | Секретный ключ Django              | -                 |
 | `DJANGO_DEBUG`                | Режим отладки                      | `false`           |
 | `DJANGO_ALLOWED_HOSTS`        | Разрешённые хосты                  | `localhost`       |
-| `DB_NAME`                     | Имя базы данных                    | `vkrtry2`         |
+| `DJANGO_CORS_ALLOW_ALL_ORIGINS` | Разрешить все источники (dev)    | `true`            |
+| `DJANGO_CORS_ALLOWED_ORIGINS` | Белый список источников (prod)     | `http://localhost:8080` |
+| `DB_NAME`                     | Имя базы данных                    | `kpi_db`          |
 | `DB_USER`                     | Пользователь БД                    | `postgres`        |
-| `DB_PASSWORD`                 | Пароль БД                          | -                 |
+| `DB_PASSWORD`                 | Пароль БД (обязателен)             | -                 |
+| `DB_HOST`                     | Хост БД                            | `localhost`       |
+| `DB_PORT`                     | Порт БД                            | `5432`            |
 | `KPI_BASE_SALARY`             | Базовый оклад для расчёта премии   | `50000`           |
 | `CROSSREF_MAILTO`             | Email для Crossref API             | -                 |
 | `CROSSREF_USER_AGENT`         | User-Agent для Crossref API        | -                 |
@@ -133,9 +147,18 @@ frontend/src/
 
 ## API
 
-Основные группы endpoints:
+### Интерактивная документация
+
+После запуска backend доступны:
+
+- `http://localhost:8000/api/docs/` — Swagger UI
+- `http://localhost:8000/api/redoc/` — ReDoc
+- `http://localhost:8000/api/schema/` — OpenAPI 3 схема (YAML)
+
+### Основные группы endpoints
 
 - `POST /api/token/` — получение JWT-токена
+- `POST /api/token/refresh/` — обновление токена
 - `GET/POST /api/kpi/values/` — CRUD значений KPI
 - `POST /api/kpi/values/{id}/submit/` — отправка на проверку
 - `POST /api/kpi/values/{id}/approve/` — утверждение (руководитель)
@@ -143,9 +166,11 @@ frontend/src/
 - `GET /api/kpi/values/dashboard/` — данные дашборда
 - `GET /api/kpi/values/history/` — история KPI
 - `GET /api/kpi/manager-dashboard/` — дашборд руководителя
-- `GET /api/kpi/reports/generate/` — генерация отчётов
+- `GET /api/kpi/reports/generate/` — генерация PDF-отчёта
+- `GET /api/kpi/reports/generate-excel/` — генерация Excel-отчёта
 - `GET /api/kpi/profile/` — профиль пользователя
 - `GET /api/kpi/notifications/` — уведомления
+- `POST /api/kpi/crossref/sync/` — импорт публикаций из Crossref
 
 ## Тестирование
 

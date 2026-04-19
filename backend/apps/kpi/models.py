@@ -1,8 +1,21 @@
 from django.core import validators
+from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
+
+EVIDENCE_MAX_SIZE_MB = 10
+EVIDENCE_ALLOWED_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']
+
+
+def validate_evidence_file_size(file):
+    limit_bytes = EVIDENCE_MAX_SIZE_MB * 1024 * 1024
+    if file.size > limit_bytes:
+        raise ValidationError(
+            f'Размер файла превышает допустимый лимит {EVIDENCE_MAX_SIZE_MB} МБ.'
+        )
 
 
 class KpiGroup(models.Model):
@@ -100,8 +113,16 @@ class KpiValue(models.Model):
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
     review_comment = models.TextField(blank=True)
-    evidence = models.FileField(upload_to='evidence/%Y/%m/', blank=True, null=True,
-                                verbose_name='Подтверждающий документ')
+    evidence = models.FileField(
+        upload_to='evidence/%Y/%m/',
+        blank=True,
+        null=True,
+        validators=[
+            FileExtensionValidator(allowed_extensions=EVIDENCE_ALLOWED_EXTENSIONS),
+            validate_evidence_file_size,
+        ],
+        verbose_name='Подтверждающий документ',
+    )
     comment = models.TextField(blank=True, verbose_name='Комментарий')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
